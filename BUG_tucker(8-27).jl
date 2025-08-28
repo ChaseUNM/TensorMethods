@@ -1,6 +1,6 @@
 using LinearAlgebra, ITensors, ITensorMPS, Random, Plots
 
-pyplot()
+#pyplot()
 ITensors.set_warn_order(18)
 # include("Hamiltonian.jl")
 #Create tucker-tensor format for ITensor 
