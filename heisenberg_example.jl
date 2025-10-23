@@ -1,5 +1,5 @@
 using ITensors, ITensorMPS, Plots, ProgressMeter
-pyplot()
+#pyplot()
 
 include("hamiltonian(8-4).jl")
 include("BUG_tucker(8-27).jl")

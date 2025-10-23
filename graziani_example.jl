@@ -1,5 +1,5 @@
 using ITensors, ITensorMPS, LinearAlgebra, Random, Plots, LaTeXStrings, Printf
-pyplot()
+#pyplot()
 include("hamiltonian(8-4).jl")
 include("tdvp(8-4).jl")
 Random.seed!(42)
