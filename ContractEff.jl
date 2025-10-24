@@ -2,14 +2,14 @@ using ITensors, LinearAlgebra, Random
 
 Random.seed!(42)
 #contract in place
-i = Index(2;tags = "i")
-j = Index(2;tags = "j")
-k = Index(2;tags = "k")
-l = Index(2;tags = "l")
+i = Index(5;tags = "i")
+j = Index(5;tags = "j")
+k = Index(5;tags = "k")
+l = Index(5;tags = "l")
 
-u1 = Index(2;tags = "u1")
-u2 = Index(2;tags = "u2")
-u3 = Index(2;tags = "u3")
+u1 = Index(10;tags = "u1")
+u2 = Index(10;tags = "u2")
+u3 = Index(10;tags = "u3")
 
 core = random_itensor(i,j,k)
 A = random_itensor(i,u1)
@@ -18,12 +18,17 @@ C = random_itensor(k,u3)
 
 C1 = ITensor(u1, j, k)
 
-# @btime begin 
-#     A1 = core*A
-# end
-# @btime begin 
-#     ITensors.contract!(C1, core, A)
-# end
+println("Single TTM: ")
+println("--------------------------------------")
+println("Using *")
+@btime begin 
+    A1 = core*A
+end
+println()
+println("Using contract!")
+@btime begin 
+    ITensors.contract!(C1, core, A)
+end
 alloc1 = ITensor(u1,j,k)
 alloc2 = ITensor(u1,u2,k)
 alloc3 = ITensor(u1,u2,u3)
@@ -75,11 +80,15 @@ end
 
 factors = [A, B, C]
 alloc_tensors = preallocate_itensor(core, factors)
-
+println()
+println("Multi-TTM")
+println("-------------------------------------------")
+println("Using *")
 @btime begin 
 ans_1 = reconstruct(core, factors)
 end
-
+println()
+println("Using contract!")
 @btime begin
 Multi_TTM!(core, factors, alloc_tensors)
 end

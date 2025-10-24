@@ -20,6 +20,7 @@ Performs the Tensor Times Matrix (TTM) operation along the specified mode.
 # Returns
 - `Y::Array`: The resulting tensor after the TTM operation.
 """
+
 function TTM(tensor::AbstractArray, matrix::AbstractMatrix, mode::Int)
     tensor_dim = collect(size(tensor))
     # println("Tensor dims: ", tensor_dim)
@@ -35,6 +36,8 @@ function TTM(tensor::AbstractArray, matrix::AbstractMatrix, mode::Int)
         # println("M: ", row)
         # println("P: ", col)
         # @time begin 
+        # println("Size matrix: ", size(matrix))
+        # println("Size reshape: ", size(reshape(tensor, row, col)))
         Y = matrix * reshape(tensor, row, col)
         # end
         return reshape(Y, mat_row, P...)
@@ -53,12 +56,14 @@ function TTM(tensor::AbstractArray, matrix::AbstractMatrix, mode::Int)
         matT = transpose(matrix)
         @views for l = 1:P
             mul!(Y[:, :, l], X_bar[:, :, l], matT)
+            # Y[:,:,l] .= X_bar[:,:,l]*matT
         end
         return reshape(Y, tensor_dim[1:mode - 1]..., mat_row, tensor_dim[mode + 1:d]...)
     end
 end
 
 function TTM_allocate(tensor::AbstractArray, matrix::AbstractMatrix, M::Int, P::Int, Y_alloc::AbstractArray, mode::Int)
+    # println("Mode $mode")
     tensor_dim = collect(size(tensor))
     d = length(tensor_dim)
     mat_row, mat_col = size(matrix)
@@ -71,32 +76,57 @@ function TTM_allocate(tensor::AbstractArray, matrix::AbstractMatrix, M::Int, P::
         deleteat!(P_inds, 1)
         # col = Int(prod(size(tensor)) / size(tensor, 1))
         # row = size(tensor, 1)
+        # M = Int(prod(size(tensor)) / size(tensor, 1))
+        # P = size(tensor, 1)
         # @time begin 
         # Y = matrix * reshape(tensor, row, col)
-
-        mul!(Y_alloc, matrix, reshape(tensor, M, P))
+        M = size(tensor, 1)
+        P = Int(prod(size(tensor)) / size(tensor, 1))
+        # println("Size: ", size(matrix))
+        # println("Size tensor: ", size(tensor))
+        # println("M: $M")
+        # println("P: $P")
+        # println("Size 2: ", size(reshape(tensor, M, P)))
+        # println("Sizes 3: ", size(Y_alloc))
+        # println("Size matrix: ", size(matrix))
+        subY = view(Y_alloc, 1:size(matrix, 1), 1:P)
+        mul!(subY, matrix, reshape(tensor, M, P))
         # end
-        return reshape(Y_alloc, mat_row, P_inds...)
+        return reshape(subY, mat_row, P_inds...)
     else
         # println(size(Y_bar))
+        M = Int(prod(size(tensor)[1:mode - 1]))
+        P = Int(prod(size(tensor)[mode + 1:d]))
+        # println("M: $M")
+        # println("P: $P")
+        # println("tensor size: ", size(tensor))
         X_bar = reshape(tensor, M, tensor_dim[mode], P)
         #most of the memory is here
         
-        matT = transpose(matrix)
+        # matT = transpose(matrix)
         # time_total = 0.0
         # mul!(Y_bar, matrix, matricization(tensor, mode))
         # Y_bar = matrix*matricization(tensor, mode)
         @views for l = 1:P
+            # subY = view(Y_alloc[1:M,1:mat_row,l])
+            # println("Slice size: ", size(Y_alloc[:,:,l]))
+            # println("Product Size: ", size(X_bar[:,:,l]*transpose(matrix)))
+            # println("Size matrix: ", size(matrix))
             # t_start = time_ns()
-            mul!(Y_alloc[:, :, l], X_bar[:, :, l], matT)
+            mul!(Y_alloc[:, :, l], X_bar[:, :, l], transpose(matrix))
+            # mul!(view(Y_alloc, 1:M, 1:mat_row, l), X_bar[:, :, l], transpose(matrix))
+            # Y_alloc[:,:,l] = X_bar[:,:,l]*transpose(matrix)
             # t_end = time_ns()
             # time_total += (t_end - t_start)/1E9
         end
+        # println("Size Y_alloc: ", size(Y_alloc))
+        # subY = view(Y_alloc, 1:M, 1:mat_row, 1:P)
+        # println("Size Y_alloc view: ", size(view(Y_alloc, 1:M, 1:mat_row, 1:P)))
         # @views for l = 1:M 
         #     mul!(Y_bar[l,:,:], matrix, X_bar[l,:,:])
         # end
         # println("Time for Multiplcation: $time_total")
-        return reshape(Y_alloc, tensor_dim[1:mode - 1]..., mat_row, tensor_dim[mode + 1:d]...)
+        return reshape(view(Y_alloc, 1:M, 1:mat_row, 1:P), tensor_dim[1:mode - 1]..., mat_row, tensor_dim[mode + 1:d]...)
     end
 end
 
@@ -330,11 +360,11 @@ function Multi_TTM_recursive(tensor::Array, matrices::Vector{<:AbstractMatrix}, 
 end
 
 function Multi_TTM_allocate(tensor::Array, matrices::Vector{<:AbstractMatrix}, M_list::Union{Nothing, Vector{Int}}=nothing, P_list::Union{Nothing, Vector{Int}}=nothing, Y_list::Vector{Array}=nothing)
-    Y = copy(tensor)  
+    Y = copy(tensor)
     for i in 1:length(matrices)
         Y = TTM_allocate(Y, matrices[i], M_list[i], P_list[i], Y_list[i], i)
     end
-    return Y 
+    return Y
 end
 
 function Multi_TTM_allocate_recursive(tensor::Array, matrices::Vector{<:AbstractMatrix}, M_list::Union{Nothing, Vector{Int}}=nothing, P_list::Union{Nothing, Vector{Int}}=nothing, Y_list::Vector{Array}=nothing, mode::Int=1)
@@ -345,6 +375,7 @@ function Multi_TTM_allocate_recursive(tensor::Array, matrices::Vector{<:Abstract
         return Multi_TTM_allocate_recursive(TTM_allocate(tensor, matrices[mode], M_list[mode], P_list[mode], Y_list[mode], mode), matrices, M_list, P_list, Y_list, mode + 1)
     end
 end
+
 
 function trim_by_tolerance(v::Vector{T}, tol::Real) where T<:Real
     idx = length(v)
@@ -406,8 +437,27 @@ function refold_mat(mat::Array, original_dim::Tuple{Vararg{Int64}}, mode::Int64)
     end
 end
 
-function LLSV(Y::Array; cutoff::Union{Nothing,Float64}=nothing, target_rank::Union{Nothing,Int64}=nothing)
+# function LLSV(Y::Array; cutoff::Union{Nothing,Float64}=nothing, target_rank::Union{Nothing,Int64}=nothing)
+#     U, S, Vt = svd(Y)
+#     # println("Singular Values: ", S)
+#     if (cutoff === nothing) == (target_rank === nothing)
+#         error("Specify either cutoff or target_rank, but not both.")
+#     end
+#     if cutoff !== nothing
+#         rank = trim_by_tolerance(S, cutoff)
+#         # println("Truncated rank by cutoff: ", rank)
+#     else
+#         rank = target_rank
+#     end
+#     # println("Chosen rank: ", rank)
+#     W = U[:, 1:rank]
+#     err = sqrt(sum(S[rank+1:end].^2))
+#     return W, err
+# end
+
+function LLSV(Y::Array; cutoff::Union{Nothing,Float64}=nothing, target_rank::Union{Nothing,Int64}=nothing, verbose::Bool=false, mode::Int64 = nothing)
     U, S, Vt = svd(Y)
+    
     if (cutoff === nothing) == (target_rank === nothing)
         error("Specify either cutoff or target_rank, but not both.")
     end
@@ -417,13 +467,62 @@ function LLSV(Y::Array; cutoff::Union{Nothing,Float64}=nothing, target_rank::Uni
     else
         rank = target_rank
     end
-    # println("Chosen rank: ", rank)
     W = U[:, 1:rank]
+    if verbose == true
+        println("Singular Values for mode $mode: ", S)
+        println("Removed Singular Values for mode $mode: ", S[rank + 1:end])
+        println("Rank of factor $mode: $rank")
+        println("---------------------------------------------------------")
+    end
     err = sqrt(sum(S[rank+1:end].^2))
     return W, err
 end
 
-function tucker(tensor::Array; cutoff::Union{Nothing,Float64}=nothing, target_rank::Union{Nothing,Vector{Int64}}=nothing)
+# function tucker(tensor::Array; cutoff::Union{Nothing,Float64}=nothing, target_rank::Union{Nothing,Vector{Int64}}=nothing)
+#     d = length(size(tensor))
+#     if target_rank === nothing && cutoff == 0
+#         target_rank_vec = fill(nothing, d)
+#     else
+#         target_rank_vec = target_rank
+#     end
+#     U_list = Matrix{eltype(tensor)}[]
+#     core = copy(tensor)
+#     core_copy = copy(tensor)
+#     err_list = zeros(d)
+#     cutoff_bar = cutoff !== nothing ? cutoff*norm(tensor)/sqrt(d) : nothing
+#     for i in 1:d
+#         U, err = LLSV(matricization(core_copy, i); cutoff = cutoff, target_rank = target_rank_vec[i])
+#         push!(U_list, U)
+#         err_list[i] = err
+#         core = TTM(core, Array(U'), i)
+#     end
+#     total_err = sqrt(sum(err_list.^2))
+#     return core, U_list, total_err
+# end
+
+function tucker(tensor::Array; cutoff::Union{Nothing,Float64}=nothing, target_rank::Union{Nothing,Vector{Int64}}=nothing, verbose::Bool=false)
+    d = length(size(tensor))
+    if target_rank === nothing && cutoff == 0.0
+        target_rank_vec = fill(nothing, d)
+    else
+        target_rank_vec = fill(nothing, d)
+    end
+    U_list = Matrix{eltype(tensor)}[]
+    core = copy(tensor)
+    core_copy = copy(tensor)
+    err_list = zeros(d)
+    cutoff_bar = cutoff !== nothing ? cutoff*norm(tensor)/sqrt(d) : nothing
+    for i in 1:d
+        U, err = LLSV(matricization(core_copy, i); cutoff = cutoff, target_rank = target_rank_vec[i], verbose = verbose, mode = i)
+        push!(U_list, U)
+        err_list[i] = err
+        core = TTM(core, Array(U'), i)
+    end
+    total_err = sqrt(sum(err_list.^2))
+    return core, U_list, total_err
+end
+
+function truncate_tucker(tensor::AbstractArray, factors::Vector{<:AbstractMatrix}; cutoff::Union{Nothing,Float64}=nothing, target_rank::Union{Nothing,Vector{Int64}}=nothing)
     d = length(size(tensor))
     if target_rank === nothing
         target_rank_vec = fill(nothing, d)
@@ -435,14 +534,14 @@ function tucker(tensor::Array; cutoff::Union{Nothing,Float64}=nothing, target_ra
     core_copy = copy(tensor)
     err_list = zeros(d)
     cutoff_bar = cutoff !== nothing ? cutoff*norm(tensor)/sqrt(d) : nothing
-    for i in 1:d
+    for i in 1:d 
         U, err = LLSV(matricization(core_copy, i); cutoff = cutoff, target_rank = target_rank_vec[i])
-        push!(U_list, U)
-        err_list[i] = err
+        push!(U_list, factors[i]*U)
+        err_list[i] = err 
         core = TTM(core, Array(U'), i)
     end
     total_err = sqrt(sum(err_list.^2))
-    return core, U_list, total_err
+    return core, U_list, total_err 
 end
 
 function tucker_sequential(tensor::Array; cutoff::Union{Nothing,Float64}=nothing, target_rank::Union{Nothing,Vector{Int64}}=nothing)
@@ -630,11 +729,36 @@ end
 
 
 #Test Multi_TTM with Multi_TTM versus ITensor method
-A4 = rand(ComplexF64, 20,21,22,23)
-B4 = rand(ComplexF64, 6,20)
-C4 = rand(ComplexF64, 7,21)
-D4 = rand(ComplexF64, 8,22)
-E4 = rand(ComplexF64, 9,23)
+# A4 = rand(ComplexF64, 4,4,4,4)
+# B4 = rand(ComplexF64, 4,4)
+# C4 = rand(ComplexF64, 4,4)
+# D4 = rand(ComplexF64, 4,4)
+# E4 = rand(ComplexF64, 4,4)
+# factors = [B4, C4, D4, E4]
+# M_wa, P_wa, Y_wa = pre_allocate(A4, factors)
+#This is fine, the issue begins when I have factors of smaller size
+# @btime begin 
+# ans1 = Multi_TTM_recursive(A4, factors)
+# end 
+# @btime begin 
+# ans2 = Multi_TTM_allocate_recursive(A4, factors, M_wa, P_wa, Y_wa)
+# end
+# println("Error: ", norm(ans1 - ans2))
+
+# A4_2 = rand(ComplexF64, 3, 3, 3, 3)
+# B4_2 = rand(ComplexF64, 4,3)
+# C4_2 = rand(ComplexF64, 4,3)
+# D4_2 = rand(ComplexF64, 4,3)
+# E4_2 = rand(ComplexF64, 4,3)
+# factors_2 = [B4_2, C4_2, D4_2, E4_2]
+# @btime begin 
+# ans1 = Multi_TTM_recursive(A4_2, factors_2)
+# end 
+# @btime begin 
+# ans2 = Multi_TTM_allocate_recursive(A4_2, factors_2, M_wa, P_wa, Y_wa)
+# end
+# println("Error 2: ", norm(ans1 - ans2))
+
 # i4 = Index(20; tags="i4")
 # j4 = Index(21; tags="j4")
 # k4 = Index(22; tags="k4")
@@ -649,14 +773,14 @@ E4 = rand(ComplexF64, 9,23)
 # D4_itensor = ITensor(D4, o4,k4)
 # E4_itensor = ITensor(E4, p4,l4)
 
-A = rand(ComplexF64, 2, 2, 2)
-B = rand(ComplexF64, 2, 2)
-C = rand(ComplexF64, 2, 2)
-D = rand(ComplexF64, 2, 2)
+# A = rand(ComplexF64, 2, 2, 2)
+# B = rand(ComplexF64, 2, 2)
+# C = rand(ComplexF64, 2, 2)
+# D = rand(ComplexF64, 2, 2)
 
-core = A
-factors = [B, C, D]
-M_list, P_list, Y_list = pre_allocate(core, factors)
+# core = A
+# factors = [B, C, D]
+# M_list, P_list, Y_list = pre_allocate(core, factors)
 # M_list_l, P_list_l, Y_list_l = pre_allocate2(core, factors)
 # Y_list2 = pre_allocate_matrices(core, factors)
 # Y_list3 = pre_allocate_matrices2(core, factors)
@@ -666,12 +790,12 @@ M_list, P_list, Y_list = pre_allocate(core, factors)
 # A4_slow = Multi_TTM(core, factors)
 # end
 # @btime begin
-A_recursive = Multi_TTM_recursive(core, factors)
-A_recursive2 = Multi_TTM_recursive(core, factors)
-println("Diff: ", norm(A_recursive - A_recursive2))
-A_recursive_allocate = Multi_TTM_allocate_recursive(core, factors, M_list, P_list, Y_list)
-A_recursive_allocate2 = Multi_TTM_allocate_recursive(core, factors, M_list, P_list, Y_list)
-println("Diff: ", norm(A_recursive_allocate - A_recursive_allocate2))
+# A_recursive = Multi_TTM_recursive(core, factors)
+# A_recursive_allocate = Multi_TTM_allocate_recursive(core, factors, M_list, P_list, Y_list)
+# A_recursive2 = Multi_TTM_recursive(core, factors)
+# println("Diff: ", norm(A_recursive - A_recursive2))
+# A_recursive_allocate2 = Multi_TTM_allocate_recursive(core, factors, M_list, P_list, Y_list)
+# println("Diff: ", norm(A_recursive_allocate - A_recursive_allocate2))
 # end
 # println("Multi-TTM ITensor: ")
 # @btime begin 

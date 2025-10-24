@@ -58,10 +58,11 @@ function applyH_mat(op_list, factors, site)
     new_factors = [zeros(eltype(factors[i]), size(factors[i], 2), size(factors[i], 2)) for i in 1:length(factors)]
     # Adjust size for the selected site, since op_list[site]*factors[site] changes shape
     new_factors[site] = zeros(eltype(factors[site]), size(op_list[site], 1), size(factors[site], 2))
-    temp_factors = [zeros(eltype(factors[i]), size(factors[i], 2), size(factors[i], 2)) for i in 1:length(factors)]
+    temp_factors = [zeros(eltype(factors[i]), size(factors[i], 1), size(factors[i], 2)) for i in 1:length(factors)]
     N = length(factors)
     # println("N: $N")
     for i = 1:N
+        # println("Site $i")
         # println("i: $i")
         if i == site
             # display(op_list[i])
@@ -77,6 +78,38 @@ function applyH_mat(op_list, factors, site)
         end
         # println("New factors: ")
         # println(new_factors)
+    end
+    return new_factors 
+end
+
+#This is only for Hamiltonians that act on maximum 2 sites at a time
+function applyHV(op, factors, site)
+    N = length(factors)
+    new_factors = [ComplexF64.(Matrix(1.0*I, size(factors[i], 2), size(factors[i], 2))) for i in 1:N]
+    # new_factors[site] = zeros(ComplexF64, size(factors[site], 1), size(factors[site], 2))
+    if length(op) == 2
+        op_site = op[2]
+        if op_site == site 
+            new_factors[op[2]] = op[1]*factors[op[2]]
+        elseif op_site != site
+            new_factors[op[2]] = (op[1]*factors[op[2]])'*factors[op[2]]
+            new_factors[site] = factors[site]
+        end
+        # new_factors[op[4]] = op[3]*new_factors[op[4]]
+    elseif length(op) == 4
+        op_site1 = op[2]
+        op_site2 = op[4]
+        if op_site1 == site
+            new_factors[op[2]] = op[1]*factors[op[2]]
+            new_factors[op[4]] = (op[3]*factors[op[4]])'*factors[op[4]]
+        elseif op_site2 == site 
+            new_factors[op[2]] = (op[1]*factors[op[2]])'*factors[op[2]]
+            new_factors[op[4]] = op[3]*factors[op[4]]
+        else 
+            new_factors[op[2]] = (op[1]*factors[op[2]])'*factors[op[2]]
+            new_factors[op[4]] = (op[3]*factors[op[4]])'*factors[op[4]]
+            new_factors[site] = factors[site]
+        end
     end
     return new_factors 
 end
@@ -258,32 +291,40 @@ function K_evolution_itensor(core,factors,site, total_H, sites)
     factors_intermediate[site] = K_ten
 
     N_ops = length(total_H)
-    # println("N_ops: $N_ops")
     new_factors = applyH_tucker(total_H[1], Q, factors_intermediate, site)
-    # println("Tensor Factors: ")
-    # for i in 1:length(factors)
-    #     println("Factor $i: ")
-    #     display(Array(new_factors[i], inds(new_factors[i])))
-    # end
-    # println("Q")
-    # display(Q)
-    # println("factors_intermediate")
-    # display(factors_intermediate)
     init = reconstruct(Q, new_factors)
-    # println("Q: ")
-    # display(Array(Q, inds(Q)))
-    # println(Q)
-    # display(Array(init, inds(init)))
-    # println("Ten Q*factor2: ")
-    # ans_temp = Q*new_factors[1]
-    # ans_inds = inds(ans_temp)
-    # println(Q)
-    # println(ans_temp)
-    # println(Q*new_factors[2])
-    # display(Array(Q*new_factors[2], inds(Q*new_factors[2])))
+
     # @time begin 
     for i in 2:N_ops 
         new_factors = applyH_tucker(total_H[i], Q, factors_intermediate, site)
+        init += reconstruct(Q, new_factors)
+    end
+    # display(init)
+    K_dot = noprime(init*conj(Q'))
+    # end
+    return K_dot, K_ten
+end
+
+function K_evolution_itensor2(core,factors,site, total_H, sites)
+    core_inds = inds(core)
+    not_site_inds = setdiff(core_inds, [core_inds[site]])
+    Q, S = qr(core, not_site_inds)
+    K_ten = factors[site]*S
+    # println("K_ten")
+    # println(K_ten)
+    factors_copy = copy(factors)
+    factors_intermediate = factors_copy 
+    # K_inds = inds(factors[site]*S)
+    # K_ten = ITensor(K, K_inds)
+    factors_intermediate[site] = K_ten
+
+    N_ops = length(total_H)
+    new_factors = applyHV_tucker(total_H[1], factors_intermediate, site, sites)
+    init = reconstruct(Q, new_factors)
+
+    # @time begin 
+    for i in 2:N_ops 
+        new_factors = applyHV_tucker(total_H[i], factors_intermediate, site, sites)
         init += reconstruct(Q, new_factors)
     end
     # display(init)
@@ -309,9 +350,14 @@ function K_evolution_mat(core,factors,site, total_H, M_list, P_list, Y_list)
     # K_inds = inds(factors[site]*S)
     # K_ten = ITensor(K, K_inds)
     factors_intermediate[site] = K
-
+    # println("Size factors_intermediate: ")
+    # println(size(factors_intermediate[1]))
+    # println(size(factors_intermediate[2]))
+    # println(size(factors_intermediate[3]))
     N_ops = length(total_H)
+    # @time begin 
     new_factors = applyH_mat(total_H[1], factors_intermediate, site)
+    # end
     # println("Matrix Factors: ")
     # for i in 1:length(factors)
     #     println("Factor $i: ")
@@ -321,8 +367,15 @@ function K_evolution_mat(core,factors,site, total_H, M_list, P_list, Y_list)
     # display(Q)
     # println("factors_intermediate")
     # display(factors_intermediate)
-    init = zeros(ComplexF64, size(core)...)
-    init .= Multi_TTM_allocate_recursive(Q_ten, new_factors, M_list, P_list, Y_list)
+    # init = zeros(ComplexF64, size(core)...)
+    # println(size(init))
+    # println("Size Q_ten: ", size(Q_ten))
+    # println("Size Factors: ")
+    # println(size(new_factors[1]))
+    # println(size(new_factors[2]))
+    # println(size(new_factors[3]))
+    # init = Multi_TTM_allocate_recursive(Q_ten, new_factors, M_list, P_list, Y_list)
+    init = Multi_TTM_recursive(Q_ten, new_factors)
     # init .= Multi_TTM(Q_ten, new_factors)
     # println("Q: ")
     # display(Q_ten)
@@ -333,7 +386,8 @@ function K_evolution_mat(core,factors,site, total_H, M_list, P_list, Y_list)
     # @time begin 
     for i in 2:N_ops
         new_factors = applyH_mat(total_H[i], factors_intermediate, site)
-        init .+= Multi_TTM_allocate_recursive(Q_ten, new_factors, M_list, P_list, Y_list)
+        # init .+= Multi_TTM_allocate_recursive(Q_ten, new_factors, M_list, P_list, Y_list)
+        init .+= Multi_TTM_recursive(Q_ten, new_factors)
         # init .+= Multi_TTM(Q_ten, new_factors)
     end
     # display(init)
@@ -342,6 +396,113 @@ function K_evolution_mat(core,factors,site, total_H, M_list, P_list, Y_list)
     K_dot = matricization(init, site)*conj(Q)
     # end
     # return K_dot, K, new_factors, Q_ten
+    return K_dot, K
+end
+
+#Allocated memory version 
+function K_evolution_mat2(core,factors,site, total_H, M_list, P_list, Y_list)
+    # core_inds = inds(core)
+    # not_site_inds = setdiff(core_inds, [core_inds[site]])
+    # Q, S = qr(core, not_site_inds)
+    Q, S = qr(transpose(matricization(core, site)))
+    Q = Array(Q)[:,1:size(core, site)]
+    Q_ten = refold_mat(Array(transpose(Q)), size(core), site)
+
+    K = factors[site]*transpose(S)
+    # K_ten = factors[site]*S
+    # println("K_ten")
+    # println(K_ten)
+    factors_copy = copy(factors)
+    factors_intermediate = factors_copy 
+    # K_inds = inds(factors[site]*S)
+    # K_ten = ITensor(K, K_inds)
+    factors_intermediate[site] = K
+    # println("Size factors_intermediate: ")
+    # println(size(factors_intermediate[1]))
+    # println(size(factors_intermediate[2]))
+    # println(size(factors_intermediate[3]))
+    N_ops = length(total_H)
+    # @time begin 
+    new_factors = applyHV(total_H[1], factors_intermediate, site)
+    # end
+    # println("Matrix Factors: ")
+    # for i in 1:length(factors)
+    #     println("Factor $i: ")
+    #     display(new_factors[i])
+    # end
+    # println("Q")
+    # display(Q)
+    # println("factors_intermediate")
+    # display(factors_intermediate)
+    # init = zeros(ComplexF64, size(core)...)
+    # println(size(init))
+    # println("Size Q_ten: ", size(Q_ten))
+    # println("Size Factors: ")
+    # println(size(new_factors[1]))
+    # println(size(new_factors[2]))
+    # println(size(new_factors[3]))
+    init = Multi_TTM_allocate_recursive(Q_ten, new_factors, M_list, P_list, Y_list)
+    # init = Multi_TTM_recursive(Q_ten, new_factors)
+    # init .= Multi_TTM(Q_ten, new_factors)
+    # println("Q: ")
+    # display(Q_ten)
+    # println("Init:")
+    # display(init)
+    # println("Arr Q*factor2: ")
+    # display(TTM(Q_ten, new_factors[1], 1))
+    # @time begin 
+    for i in 2:N_ops
+        new_factors = applyHV(total_H[i], factors_intermediate, site)
+        init .+= Multi_TTM_allocate_recursive(Q_ten, new_factors, M_list, P_list, Y_list)
+        # init .+= Multi_TTM_recursive(Q_ten, new_factors)
+        # init .+= Multi_TTM(Q_ten, new_factors)
+    end
+    # display(init)
+    # println("Mat_i Init size: ", size(matricization(init, site)))
+    # println("Q' size: ", size(Q))
+    K_dot = matricization(init, site)*conj(Q)
+    # end
+    # return K_dot, K, new_factors, Q_ten
+    return K_dot, K
+end
+
+#Non-allocated memory version
+function K_evolution_mat2(core,factors,site, total_H)
+    Q, S = qr(transpose(matricization(core, site)))
+    K = factors[site]*transpose(S)
+    factors_copy = copy(factors)
+    factors_intermediate = factors_copy 
+    factors_intermediate[site] = K
+    # println("Site $site")
+    # println("Size core: ", size(core))
+    # println("size transpose: ", size(transpose(matricization(core, site))))
+    # println("Size Q: ", size(Q))
+    # println(size(core, site))
+    Q = Array(Q)[:,1:min(size(core, site), size(Q, 2))]
+    size_Q = zeros(Int64, length(factors_intermediate))
+    for i in 1:length(factors_intermediate)
+        size_Q[i] = size(factors_intermediate[i], 2)
+    end
+    size_Q = tuple(size_Q...)
+    # println(size_Q)
+    Q_ten = refold_mat(Array(transpose(Q)), size_Q, site)
+
+    
+    
+    # K_inds = inds(factors[site]*S)
+    # K_ten = ITensor(K, K_inds)
+    
+    N_ops = length(total_H)
+    # @time begin 
+    new_factors = applyHV(total_H[1], factors_intermediate, site)
+    # new_factors = applyH_mat(total_H[1], factors_intermediate, site)
+    init = Multi_TTM_recursive(Q_ten, new_factors)
+    for i in 2:N_ops
+        new_factors = applyHV(total_H[i], factors_intermediate, site)
+        # new_factors = applyH_mat(total_H[i], factors_intermediate, site)
+        init .+= Multi_TTM_recursive(Q_ten, new_factors)
+    end
+    K_dot = matricization(init, site)*conj(Q)
     return K_dot, K
 end
 
@@ -481,8 +642,8 @@ function C_dot_im_mat(core, factors, total_H, Ms, Ps, Ys)
     N_factors = length(factors)
     # desired_inds = prime(inds(core))
     # init = ITensor(desired_inds)
-    init = zeros(eltype(core), size(core)...)
-    # init = rand(eltype(core), size(core)...)
+    # init = zeros(eltype(core), size(core)...)
+    init = rand(eltype(core), size(core)...)
     # new_factors = []
     # new_factors = Vector{AbstractMatrix}(undef, N_factors)
     new_factors = [zeros(eltype(factors[i]), size(factors[i], 2), size(factors[i], 2)) for i in 1:length(factors)]
@@ -494,8 +655,10 @@ function C_dot_im_mat(core, factors, total_H, Ms, Ps, Ys)
     # c = zeros(eltype(core), size(core)...)
     # factors_copy = copy(factors)
     # core_copy = copy(core)
-    for i in 1:N_ops 
-        for j in 1:N_factors 
+    for i in 1:N_ops
+        println("Operation $i: ") 
+        for j in 1:N_factors
+            
             # new_factor = mat_factors[j]'*Array(total_H[i][j], inds(total_H[i][j]))*mat_factors[j]
             # println(new_factor)
             # new_factors[j] = ITensor(new_factor, inds(core)[j], inds(core)[j]')
@@ -524,46 +687,14 @@ function C_dot_im_mat(core, factors, total_H, Ms, Ps, Ys)
             # factor_multiple_time2 += mult_elapsed2
             # push!(new_factors, conj(factors[j]')*total_H[i][j]*factors[j])
         end
-        # println(core)
-        # println(new_factors)
-        # time_elapsed = @elapsed begin
-        # println("LOOK HERE NOW")
-        # display(core)
-        # @time begin
-        # init .+= -im*Multi_TTM_allocate_recursive(core, new_factors, M_list, P_list, Y_list)
+        # println("Ms: $Ms")
+        # println("Ps: $Ps")
+        # println("Ys: ")
+        # display(Ys)
         # init .+= -im*Multi_TTM_recursive(core, new_factors)
-        # println("Core Before: ")
-        # display(core)
-
-        # a .+= -im*Multi_TTM_allocate_recursive(core, new_factors, M_list, P_list, Y_list)
-        # display(-im*Multi_TTM_allocate_recursive(core, new_factors, M_list, P_list, Y_list))
-        # println("Core after: ")
-        # display(core)
-        # println("Factor 1 after")
-        # display(new_factors[3])
-        # println("Correct")
-        init .+= -im*Multi_TTM_recursive(core, new_factors)
-        # println("Core before: ")
-        # display(core)
-        # a .+= -im*Multi_TTM_allocate_recursive(core, new_factors, M_list, P_list, Y_list)
-        # println("a: ")
         # display(-im*Multi_TTM_allocate_recursive(core, new_factors, Ms, Ps, Ys))
-        # display(TTM_allocate(core, new_factors[1], Ms[1], Ps[1], Ys[1], 1))
-        # b .+= -im*Multi_TTM_recursive(core, new_factors)
-        # println("b")
+        display(-im*Multi_TTM_allocate(core, new_factors, Ms, Ps, Ys))
         # display(-im*Multi_TTM_recursive(core, new_factors))
-        # display(TTM(core, new_factors[1], 1))
-        # c .+= -im*Multi_TTM(core, new_factors)
-        # println("c")
-        # display(-im*Multi_TTM(core, new_factors))
-        # println("norm: ", norm(a - b))
-        # println("norm: ", norm(b - c))
-        # println("norm: ", norm(a - c))
-        # init .+= -im*Multi_TTM_allocate_recursive(core, new_factors, M_list, P_list, Y_list)
-        # println("Core after")
-        # display(core)
-        # println("Sum here")
-        # display(init)
         # a = -im*Multi_TTM_allocate(core, new_factors, M_list, P_list, Y_list)
         # println("Incorrect")
         # a .+= -im*Multi_TTM_allocate(core, new_factors, M_list, P_list, Y_list)
@@ -575,6 +706,7 @@ function C_dot_im_mat(core, factors, total_H, Ms, Ps, Ys)
     end
     return init
 end
+
 
 
 function tensorize_factors(factors, inds)
