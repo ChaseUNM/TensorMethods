@@ -1,0 +1,1 @@
+TensorMethods.jl is meant to aggregate evolution methods for tensor decompositions using ITensors. Currently the methods are the Rank-adaptive BUG method for Tucker-tensors and TDVP1/2 for tensor trains. 
