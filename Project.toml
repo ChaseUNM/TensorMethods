@@ -1,0 +1,21 @@
+name = "TensorMethods"
+uuid = "dd53403b-4ea4-4041-bd65-cc472927a0ca"
+version = "0.1.0"
+
+[deps]
+CPUTime = "a9c8d775-2e2e-55fc-8582-045d282d599e"
+DelimitedFiles = "8bb1440f-4735-579b-a4ab-409b98df4dab"
+ITensorMPS = "0d1a4710-d33b-49a5-8f18-73bdf49b47e2"
+ITensors = "9136182c-28ba-11e9-034c-db9fb085ebd5"
+LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
+Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
+ProgressMeter = "92933f4c-e287-5a05-a399-4b506db050ca"
+SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+
+[compat]
+CPUTime = "1.0.0"
+DelimitedFiles = "1.9.1"
+LaTeXStrings = "1.4.0"
+Printf = "1.11.0"
