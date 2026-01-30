@@ -1,5 +1,28 @@
 using ITensors, ITensorMPS, LinearAlgebra 
 
+#returns maximum dimension of the left and right site indices for a quantum system where each subsystem has 2 energy levels
+function max_bond_dimension(i, N)
+    middle_site = (N + 1)/2
+    if i == 1
+        max_left = nothing 
+        max_right = 2
+    elseif i == N 
+        max_left = 2
+        max_right = nothing 
+    else
+        if i < middle_site 
+            max_left = 2^(i - 1)
+            max_right = 2^i 
+        elseif i > middle_site 
+            max_left = 2^(N - i + 1)
+            max_right = 2^(N - i)
+        elseif i == middle_site 
+            max_left = 2^(i - 1)
+            max_right = 2^(i - 1)
+        end
+    end
+    return max_left, max_right 
+end
 
 function get_site_and_links(T::ITensor)
     site_idx = nothing
@@ -75,8 +98,8 @@ function sweep_left_bug(H::MPO, M::MPS, h::Float64, center::Int64)
     R_block = 1
     M_copy = deepcopy(M)
     for i in N:-1:center + 1
-        
         #Update the i-th core
+        max_left, max_right = max_bond_dimension(i, N)
         M_evolve = TT_IMR_1site_new(H, M_copy[i], L_list[i], R_block, h, i)
         # println("Site $i updated")
         # println(M_copy[i])
@@ -85,16 +108,17 @@ function sweep_left_bug(H::MPO, M::MPS, h::Float64, center::Int64)
         if length(inds(M_copy[i])) == 2
             M_mat = Array(M_copy[i], inds(M_copy[i]))
             M_evolve_mat = Array(M_evolve, inds(M_evolve))
-            # M_combined = hcat(M_evolve_mat, M_mat)
-            M_combine = hcat(M_evolve_mat)
+
+            M_combine = hcat(M_evolve_mat, M_mat)
+            # M_combine = hcat(M_evolve_mat)
             Q, R = qr(M_combine)
 
 
 
             row, col = size(M_combine)
 
-            # Q = Q[1:row, 1:min(row, col, 2^i)]
             Q = Q[1:row, 1:min(row, col)]
+            # Q = Q[1:row, 1:min(row, col)]
             new_link = Index(min(row, col); tags="Link, l = $(i - 1)")
             # println("Got here")
             # println(siteinds(M)[i])
@@ -115,10 +139,17 @@ function sweep_left_bug(H::MPO, M::MPS, h::Float64, center::Int64)
             # M_evolve_mat2 = reshape(M_evolve_arr2, dim(right_idx)*dim(site_idx), dim(left_idx))
             # println("Size M_Mat2: ", size(M_mat2))
             # M_combine = hcat(transpose(M_evolve_mat), transpose(M_mat))
-            
-            # M_combine = vcat(M_evolve_mat, M_mat)
-            M_combine = hcat(M_evolve_mat)
-
+            # if size(M_mat, 1) >= 2^(i - 1)
+            #     M_combine = M_mat 
+            # else
+            #     M_combine = vcat(M_evolve_mat, M_mat)
+            # end
+            # if dim(left_idx) < max_left
+            #     M_combine = vcat(M_evolve_mat, M_mat)
+            # else 
+            #     M_combine = vcat(M_evolve_mat)
+            # end
+            M_combine = vcat(M_evolve_mat, M_mat)
             # M_combine = hcat(M_evolve_mat2, M_mat2)
 
             Q, R = qr(M_combine')
@@ -126,7 +157,7 @@ function sweep_left_bug(H::MPO, M::MPS, h::Float64, center::Int64)
             
             # println(new_left_idx)
             row, col = size(M_combine')
-            # Q = Q[1:row, 1:min(row, col, 2^i)]
+            # Q = Q[1:row, 1:min(row, col)]
             Q = Q[1:row, 1:min(row, col)]
 
             Q = transpose(conj(Q))
@@ -155,15 +186,15 @@ function sweep_right_bug(H::MPO, M::MPS, h::Float64, center::Int64)
     M_copy = deepcopy(M)
 
     for i in 1:center - 1
-
+        max_left, max_right = max_bond_dimension(i, N)
         M_evolve = TT_IMR_1site_new(H, M_copy[i], L_block, R_list[i], h, i)
 
         # println("Site $i updated")
         if length(inds(M_copy[i])) == 2
             M_mat = Array(M_copy[i], inds(M_copy[i]))
             M_evolve_mat = Array(M_evolve, inds(M_evolve))
-            # M_combine = hcat(M_evolve_mat, M_mat)
-            M_combine = hcat(M_evolve_mat)
+            M_combine = hcat(M_evolve_mat, M_mat)
+            # M_combine = hcat(M_evolve_mat)
             Q, R = qr(M_combine)
             row, col = size(M_combine)
             # Q = Q[1:row, 1:min(row, col, 2^i)]
@@ -182,18 +213,25 @@ function sweep_right_bug(H::MPO, M::MPS, h::Float64, center::Int64)
             # M_mat2 = reshape(M_arr, dim(left_idx)*dim(site_idx), dim(right_idx))
             # M_evolve_mat2 = reshape(M_evolve_arr, dim(left_idx)*dim(site_idx), dim(right_idx))
             # println("diff matrices: ", norm(transpose(M_mat) - M_mat2))
-            # M_combine = hcat(transpose(M_evolve_mat), transpose(M_mat))
-            M_combine = hcat(M_evolve_mat)
+            # if dim(right_idx) < max_right
+            #     M_combine = hcat(transpose(M_evolve_mat), transpose(M_mat))
+            # else
+            #     M_combine = hcat(transpose(M_evolve_mat))
+            # end
+            # M_combine = hcat(M_evolve_mat)
+            M_combine = hcat(transpose(M_evolve_mat), transpose(M_mat))
 
             # M_combine = hcat(M_evolve_mat2, M_mat2)
             Q, R = qr(M_combine)
-            println("size M_combine: ", size(M_combine))
+            # println("size M_combine: ", size(M_combine))
             # println("Size of M combine: ", size(M_combine))
             row, col = size(M_combine)
-            
+            # println("size of left idx: ", dim(left_idx))
+            # println("size of site idx: ", dim(site_idx))
             # Q = Q[1:row, 1:min(row, col, 2^i)]
+            # Q = Q[1:row, 1:min(row, col)]
             Q = Q[1:row, 1:min(row, col)]
-            println("size Q: ", size(Q))
+            # println("size Q: ", size(Q))
             new_right_idx = Index(min(row, col), tags = "Link, l = $i")
             Q = reshape(Q, dim(left_idx), dim(site_idx), dim(new_right_idx))
             Q_ten = ITensor(Q, left_idx, site_idx, new_right_idx)
@@ -208,7 +246,7 @@ end
 
 function mps_bug_step(H::MPO, M::MPS, h::Float64, center::Int64)
     N = length(M)
-    
+    # orthogonalize!(M, center)
     M_r, R_block = sweep_left_bug(H, M, h, center)
     M_l, L_block = sweep_right_bug(H, M, h, center)
     M_center = project_ortho_center(M, center, M_l, M_r)
@@ -230,7 +268,7 @@ function mps_bug_step(H::MPO, M::MPS, h::Float64, center::Int64)
     return updated_MPS 
 end
 
-function mps_bug_constant(H::MPO, M::MPS, t0::Float64, T::Float64, steps::Int64, center::Union{Nothing, Int64} = nothing; cutoff::Union{Nothing, Float64}=nothing, maxdim::Union{Nothing, Float64}=nothing, magnet::Bool=false, energy::Bool=false)
+function mps_bug_constant(H::MPO, M::MPS, t0::Float64, T::Float64, steps::Int64, center::Union{Nothing, Int64} = nothing; cutoff::Union{Nothing, Float64}=nothing, maxdim::Union{Nothing, Float64}=nothing, magnet::Bool=false, energy::Bool=false, verbose::Bool = false)
     # if orthoCenter(M) != center 
     #     orthogonalize!(M, center)
     # end
@@ -238,7 +276,8 @@ function mps_bug_constant(H::MPO, M::MPS, t0::Float64, T::Float64, steps::Int64,
     M_copy = deepcopy(M)
     N = length(M)
     if center == nothing 
-        center = Int64(ceil(N/2))
+        # center = Int64(ceil(N/2))
+        center = 1
     end
     magnet_history = zeros(steps + 1, N)
     energy_history = zeros(steps + 1)
@@ -252,13 +291,13 @@ function mps_bug_constant(H::MPO, M::MPS, t0::Float64, T::Float64, steps::Int64,
     end 
 
     @showprogress 1 "BUG for Tensor-trains" for i in 1:steps 
-        # println("Step $i")
+        
         M_copy = mps_bug_step(H, M_copy, h, center)
         if cutoff != nothing
             truncate!(M_copy; cutoff = cutoff)
         end
-        if maxdim != nothing 
-            truncate!(M_copy; maxdim = maxdim)
+        if maxdim == nothing 
+            truncate!(M_copy; maxdim = 2^Int64(floor(N/2)))
         end
         link_dim[i + 1, :] = linkdims(M_copy)
         if magnet == true 
@@ -268,6 +307,10 @@ function mps_bug_constant(H::MPO, M::MPS, t0::Float64, T::Float64, steps::Int64,
             energy_history[i + 1] = real(inner(M_copy', H, M_copy))
         end
         link_dim[i + 1,:] = linkdims(M_copy)
+        if verbose == true 
+            println("Step $i")
+            println("Bond Dimensions: ", linkdims(M_copy))
+        end
     end
     return M_copy, link_dim, magnet_history, energy_history
 end
@@ -277,7 +320,8 @@ function mps_bug(H::MPO, bc_params::bcparams, M::MPS, t0::Float64, T::Float64, s
     M_copy = deepcopy(M)
     N = length(M)
     if center == nothing 
-        center = Int64(ceil(N/2))
+        # center = Int64(ceil(N/2))
+        center = 1
     end
     magnet_history = zeros(steps + 1, N)
     energy_history = zeros(steps + 1)
