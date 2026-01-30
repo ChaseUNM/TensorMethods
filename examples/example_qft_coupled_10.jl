@@ -2,6 +2,8 @@ using ITensors, ITensorMPS, LinearAlgebra, DelimitedFiles, Plots, BenchmarkTools
 using TensorMethods
 
 
+#Simulate quantum evolution for 10 coupled qubits, with control pulses obtained from Quandary
+
 plot_pulse = false
 plot_tdvp = true 
 plot_bug = false
