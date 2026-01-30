@@ -1,5 +1,8 @@
-using ITensors, ITensorMPS, LinearAlgebra, DelimitedFiles, Plots, CPUTime
+using ITensors, ITensorMPS, LinearAlgebra, DelimitedFiles, Plots
 using TensorMethods
+
+
+#Simulate quantum evolution for N (up to 18) uncoupled qubits, with control pulses obtained from Quandary
 
 #Set because otherwise ITensors gives long warning messages
 ITensors.set_warn_order!(100)
