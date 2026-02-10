@@ -89,17 +89,20 @@ end
 
 
 #Calculate left-leading singular vectors
-function LLSV(Y::Array; cutoff::Union{Nothing,Float64}=nothing, target_rank::Union{Nothing,Int64}=nothing, verbose::Bool=false, mode::Int64 = nothing)
+function LLSV(Y::Array; cutoff::Union{Nothing,Float64}=nothing, target_rank::Union{Nothing,Int64}=nothing, verbose::Bool=false, mode::Union{Nothing, Int64} = nothing)
     U, S, Vt = svd(Y)
-    
-    if (cutoff === nothing) == (target_rank === nothing)
+    full_rank = length(S)
+    if cutoff !== nothing && target_rank !== nothing
         error("Specify either cutoff or target_rank, but not both.")
     end
+
     if cutoff !== nothing
         rank = trim_by_tolerance(S, cutoff)
         # println("Truncated rank by cutoff: ", rank)
+    elseif target_rank !== nothing 
+        rank = min(target_rank, full_rank)
     else
-        rank = target_rank
+        rank = full_rank
     end
     W = U[:,1:rank]
     if verbose == true
@@ -114,19 +117,21 @@ end
 
 
 #Calculate right-leading singular vectors
-function RLSV(Y::Array; cutoff::Union{Nothing,Float64}=nothing, target_rank::Union{Nothing,Int64}=nothing, verbose::Bool=false, mode::Int64 = nothing)
+function RLSV(Y::Array; cutoff::Union{Nothing,Float64}=nothing, target_rank::Union{Nothing,Int64}=nothing, verbose::Bool=false, mode::Union{Nothing, Int64} = nothing)
     U, S, Vt = svd(Y)
-    
-    if (cutoff === nothing) == (target_rank === nothing)
+    full_rank = length(S)
+    if cutoff !== nothing && target_rank !== nothing
         error("Specify either cutoff or target_rank, but not both.")
     end
     if cutoff !== nothing
         rank = trim_by_tolerance(S, cutoff)
         # println("Truncated rank by cutoff: ", rank)
-    else
+    elseif target_rank !== nothing 
         rank = target_rank
+    else
+        rank = full_rank
     end
-    W = U[1:rank,:]
+    W = Vt'[1:rank,:]
     if verbose == true
         println("Singular Values for mode $mode: ", S)
         println("Removed Singular Values for mode $mode: ", S[rank + 1:end])

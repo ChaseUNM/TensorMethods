@@ -1098,6 +1098,38 @@ function H_total_mat(N::Int64, N_levels::Vector{Int64}, transition_freq::Abstrac
     return H 
 end
 
+function H_drift_mat(N::Int64, N_levels::Vector{Int64}, transition_freq::AbstractArray, rot_freq::AbstractArray, self_kerr::AbstractArray, zz::AbstractArray, dipole::AbstractArray)
+    H = zeros(ComplexF64, (prod(N_levels), prod(N_levels)))
+    for i = 1:N 
+        a = Array(Bidiagonal(zeros(N_levels[i]), sqrt.(collect(1: N_levels[i] - 1)), :U))
+        H .+= (transition_freq[i] - rot_freq[i])*s_op_general(a'*a, i, N, N_levels[i])
+        H .-= 0.5*self_kerr[i]*s_op_general(a'*a'*a*a, i, N, N_levels[i])
+        # H .+= control_a*s_op_general(a, i, N, N_levels[i]) + control_adag*s_op_general(a, i, N, N_levels[i])
+        if i != N 
+            for j = i + 1: N
+                #zz-coupling interaction
+                H .-= zz[i,j]*s_op_general(a'*a, i, N, N_levels[i])*s_op_general(a'*a, j, N, N_levels[j])
+                #dipole-dipole interaction
+                H .+= dipole[i,j]*s_op_general(a', i, N, N_levels[i])*s_op_general(a, j, N, N_levels[j])
+                H .+= dipole[i,j]*s_op_general(a, i, N, N_levels[i])*s_op_general(a', j, N, N_levels[j])
+            end
+        end
+    end
+    return H 
+end
+
+function updateH_mat!(H::AbstractArray, N_levels::Vector{Int64}, N::Int64, bc_params::bcparams, t::Float64)
+    for i = 1:N
+        a = Array(Bidiagonal(zeros(N_levels[i]), sqrt.(collect(1: N_levels[i] - 1)), :U))
+        p = bcarrier2(t, bc_params, 2*(i - 1))
+        q = bcarrier2(t, bc_params, 2*(i - 1) + 1)
+        control_a = p + im*q 
+        control_adag = p - im*q
+        H .+= p*s_op_general(a + a', i, N, N_levels[i]) + im*q*s_op_general(a - a', i, N, N_levels[i])
+    end
+end
+
+
 ##########################################################################################
 ##########################################################################################
 ##########################################################################################
