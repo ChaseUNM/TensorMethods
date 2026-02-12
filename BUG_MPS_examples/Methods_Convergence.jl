@@ -34,7 +34,7 @@ H_ops_xxx = ops_xxx_scaled(N, J, g)
 true_sol = exp(-im*H_mat*(T - t0))*init_vec
 for i in 1:length(step_list)
     println("Steps: $(step_list[i])")
-    svd_cutoff_squared = 1E-12
+    svd_cutoff_squared = 0.0
     ans_mps, bd_history, magnet_history, energy_history = tdvp2_constant(H_mpo, init_MPS, t0, T, Int64(step_list[i]/2); cutoff = svd_cutoff_squared, magnet = false, energy = false, verbose = false, strang = true)
     # println(linkdims(ans_mps))
     ans_core, ans_factors, state, nrg, bd = bug_integrator_mat_ra(H_ops_xxx, init_core, init_factors, t0, T, step_list[i])
@@ -49,7 +49,7 @@ for i in 1:length(step_list)
     err_list_tdvp[i] = norm(true_sol - tdvp_vec)
     err_list_bug_tucker[i] = norm(true_sol - bug_tucker_vec)
     err_list_bug_mps[i] = norm(true_sol - bug_mps_vec)
-    ortho_properties(ans_mps_bug)
+
 end
 h_list = (T - t0) ./step_list
 err_plot = plot(h_list, [err_list_tdvp, err_list_bug_tucker, err_list_bug_mps], label = ["TDVP2 Error" "BUG Tucker Error" "BUG MPS Error"], xlabel = L"\Delta t (timestep)", title = "Final Error of TDVP2, BUG", dpi = 250)
