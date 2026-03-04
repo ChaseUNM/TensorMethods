@@ -16,7 +16,7 @@ In a Julia REPL:
 
 ```julia
 using Pkg
-Pkg.develop(url="/path/to/TensorMethods")
+Pkg.develop(path="/path/to/TensorMethods")
 ```
 
 ### Option 2: Install package using git url
