@@ -21,6 +21,15 @@ function count_tucker(bd::Vector, N_levels::Vector{Int64})
     return entries 
 end
 
+function count_tucker_history(bd::Array, N_levels::Vector{Int64})
+    steps = size(bd, 1)
+    entries_list = zeros(steps)
+    for i = 1:steps
+        entries_list[i] = count_tucker(bd[i,:], N_levels)
+    end
+    return entries_list 
+end
+
 function matricize_factors(factors)
     N = length(factors)
     factor_matrices = []

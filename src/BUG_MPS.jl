@@ -128,7 +128,7 @@ function sweep_right(H_mpo, M, h, center)
         L *= H_mpo[i]*Q_ten*conj(Q_ten)'
         #Set i-th site in new MPS to be Q
         new_MPS[i] = Q_ten
-
+        
         #Update initial conditions
         if i < center - 1
             M_proj *= conj(new_MPS[i])*M[i + 1]
@@ -158,7 +158,7 @@ function sweep_left(H::MPO, M::MPS, h::Float64, center::Int64)
         site_idx, left_idx, right_idx = get_site_and_links(M_proj)
         #Update the i-th core
         M_evolve = TT_IMR_1site_new(H, M_proj, L_list[i], R_block, h, i)
-
+        
         #Now need to matricize M_evolve and M_proj
         if length(inds(M_proj)) == 2
             #Matricize old and updated sites
@@ -227,7 +227,7 @@ function mps_bug_step(H_mpo, M, h, center)
     N = length(M)
     #sweep-right to return updated left sites
     M_l, M_l_proj, L_block = sweep_right(H_mpo, M, h, center)
-    #sweep-left to return updated right sites
+
     M_r, M_r_proj, R_block = sweep_left(H_mpo, M, h, center)
     #Get initial conditions for center update
     center_proj = M_l_proj*M[center]*M_r_proj

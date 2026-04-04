@@ -774,7 +774,8 @@ function xxx_mpo(N, sites, J, g)
         os -= J, "Sz2",i, "Sz2", i + 1
     end
     for i = 1:N
-        os -= g*J, "Sx2", i
+        # os -= g*J, "Sx2", i
+        os -= g, "Sx2", i
     end
     H = MPO(os, sites)
     return H 
@@ -786,7 +787,8 @@ function xxx_mpo_scaled(N, sites, J, g)
         os -= J, "Sz",i, "Sz", i + 1
     end
     for i = 1:N
-        os -= g*J, "Sx", i
+        # os -= g*J, "Sx", i
+        os -= g, "Sx", i
     end
     H = MPO(os, sites)
     return H 
@@ -805,10 +807,12 @@ end
 function xxx(N, J, g)
     H = zeros(ComplexF64, (2^N, 2^N))
     for j in 1:N - 1
-        H .+= -J*s_op_reverse(sz, j, N)*s_op_reverse(sz, j + 1, N)
+        H .+= -J*s_op(sz, j, N)*s_op(sz, j + 1, N)
+        # H .+= -J*s_op_reverse(sz, j, N)*s_op_reverse(sz, j + 1, N)
     end
     for j in 1:N
-        H .-= g*J*s_op(sx, j, N)
+        # H .-= g*J*s_op(sx, j, N)
+        H .-= g*s_op(sx, j, N)
     end
     return H
 end
@@ -816,10 +820,12 @@ end
 function xxx_scaled(N, J, g)
     H = zeros(ComplexF64, (2^N, 2^N))
     for j in 1:N - 1
-        H .+= -J*s_op_reverse(0.5*sz, j, N)*s_op_reverse(0.5*sz, j + 1, N)
+        # H .+= -J*s_op_reverse(0.5*sz, j, N)*s_op_reverse(0.5*sz, j + 1, N)
+        H .+= -J*s_op(0.5*sz, j, N)*s_op(0.5*sz, j + 1, N)
     end
     for j in 1:N
-        H .-= g*J*s_op(0.5*sx, j, N)
+        # H .-= g*J*s_op(0.5*sx, j, N)
+        H .-= g*s_op(0.5*sx, j, N)
     end
     return H
 end
