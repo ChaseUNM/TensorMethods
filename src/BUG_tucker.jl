@@ -21,6 +21,15 @@ function count_tucker(bd::Vector, N_levels::Vector{Int64})
     return entries 
 end
 
+function count_tucker_history(bd::Array, N_levels::Vector{Int64})
+    steps = size(bd, 1)
+    entries_list = zeros(steps)
+    for i = 1:steps
+        entries_list[i] = count_tucker(bd[i,:], N_levels)
+    end
+    return entries_list 
+end
+
 function matricize_factors(factors)
     N = length(factors)
     factor_matrices = []
@@ -88,18 +97,21 @@ function refold_mat(mat::Array, original_dim::Tuple{Vararg{Int64}}, mode::Int64)
 end
 
 
-
-function LLSV(Y::Array; cutoff::Union{Nothing,Float64}=nothing, target_rank::Union{Nothing,Int64}=nothing, verbose::Bool=false, mode::Int64 = nothing)
+#Calculate left-leading singular vectors
+function LLSV(Y::Array; cutoff::Union{Nothing,Float64}=nothing, target_rank::Union{Nothing,Int64}=nothing, verbose::Bool=false, mode::Union{Nothing, Int64} = nothing)
     U, S, Vt = svd(Y)
-    
-    if (cutoff === nothing) == (target_rank === nothing)
+    full_rank = length(S)
+    if cutoff !== nothing && target_rank !== nothing
         error("Specify either cutoff or target_rank, but not both.")
     end
+
     if cutoff !== nothing
         rank = trim_by_tolerance(S, cutoff)
         # println("Truncated rank by cutoff: ", rank)
+    elseif target_rank !== nothing 
+        rank = min(target_rank, full_rank)
     else
-        rank = target_rank
+        rank = full_rank
     end
     W = U[:,1:rank]
     if verbose == true
@@ -112,6 +124,32 @@ function LLSV(Y::Array; cutoff::Union{Nothing,Float64}=nothing, target_rank::Uni
     return W, err
 end
 
+
+#Calculate right-leading singular vectors
+function RLSV(Y::Array; cutoff::Union{Nothing,Float64}=nothing, target_rank::Union{Nothing,Int64}=nothing, verbose::Bool=false, mode::Union{Nothing, Int64} = nothing)
+    U, S, Vt = svd(Y)
+    full_rank = length(S)
+    if cutoff !== nothing && target_rank !== nothing
+        error("Specify either cutoff or target_rank, but not both.")
+    end
+    if cutoff !== nothing
+        rank = trim_by_tolerance(S, cutoff)
+        # println("Truncated rank by cutoff: ", rank)
+    elseif target_rank !== nothing 
+        rank = target_rank
+    else
+        rank = full_rank
+    end
+    W = Vt'[1:rank,:]
+    if verbose == true
+        println("Singular Values for mode $mode: ", S)
+        println("Removed Singular Values for mode $mode: ", S[rank + 1:end])
+        println("Rank of factor $mode: $rank")
+        println("---------------------------------------------------------")
+    end
+    err = sqrt(sum(S[rank+1:end].^2))
+    return W, err
+end
 
 function applyHV(op, factors, site)
     N = length(factors)

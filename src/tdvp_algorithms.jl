@@ -8,14 +8,14 @@ function exp_solver(H, init_vec, N, t0, T, steps)
     magnet_history = zeros(steps + 1, N)
     energy_history = zeros(steps + 1)
     for j = 1:N
-        m_mat = s_op_reverse([1 0; 0 -1], j, N)
+        m_mat = s_op([1 0; 0 -1], j, N)
         magnet_history[1,j] = real(init_vec'*m_mat*init_vec)
     end
     energy_history[1] = real(init_vec'*H*init_vec)
     @showprogress 1 "Exponential solver" for i = 1:steps 
         init_vec = sol_op*init_vec 
         for j = 1:N 
-            m_mat = s_op_reverse([1 0; 0 -1], j, N)
+            m_mat = s_op([1 0; 0 -1], j, N)
             magnet_history[i + 1,j] = real(init_vec'*m_mat*init_vec)
         end
         energy_history[i + 1] = real(init_vec'*H*init_vec)
@@ -77,9 +77,9 @@ function is_left_orthogonal(A::ITensor; tol=1e-12)
     err = norm(T_arr - Matrix(1.0*I, row, col))
     println("err: ", err)
     if err < tol
-        println("true")
+        println("left orthogonal: true")
     else
-        println("false")
+        println("left orthogonal: false")
     end
     # return is_identity(T; tol=tol)
 end
@@ -97,9 +97,9 @@ function is_right_orthogonal(A::ITensor; tol=1e-12)
     err = norm(T_arr - Matrix(1.0*I, row, col))
     println("err: ", err)
     if err < tol
-        println("true") 
+        println("right orthogonal: true") 
     else
-        println("false")
+        println("right orthogonal: false")
     end
     # return is_identity(T; tol=tol)
 end
@@ -249,7 +249,7 @@ function TT_fp_1site_new_backwards(H, init, L, R, h, site, maxiter, tol, verbose
     k_init = ITensor(inds(init))
     # count = 0
     for i = 1:maxiter
-        k = im*applyH_eff(H, init + 0.5*h*k_init, L, R, site + 1)
+        k = -im*applyH_eff(H, init - 0.5*h*k_init, L, R, site + 1)
         err = norm(k - k_init)
         # count += 1
         if verbose == true 
@@ -268,7 +268,7 @@ end
 function TT_fp_0site_new(H, init, L, R, h, site, maxiter, tol, verbose)
     k_init = ITensor(inds(init))
     for i = 1:maxiter 
-        k = im*applyK_eff(H, init + 0.5*h*k_init, L, R, site)
+        k = im*applyK_eff(H, init - 0.5*h*k_init, L, R, site)
         err = norm(k - k_init)
         if verbose == true 
             println("Iteration $i")
@@ -283,26 +283,26 @@ function TT_fp_0site_new(H, init, L, R, h, site, maxiter, tol, verbose)
 end
 
 function TT_IMR_2site_new(H, init, L, R, h, site)
-    k = TT_fp_2site_new(H, init, L, R, h, site, 100, 1E-13, false)
+    k = TT_fp_2site_new(H, init, L, R, h, site, 100, 1E-12, false)
     update = init + h*k 
     return update 
 end
 
 function TT_IMR_1site_new(H, init, L, R, h, site)
-    k = TT_fp_1site_new(H, init, L, R, h, site, 100, 1E-13, false)
+    k = TT_fp_1site_new(H, init, L, R, h, site, 100, 1E-12, false)
     update = init + h*k 
     return update 
 end
 
 function TT_IMR_1site_new_backwards(H, init, L, R, h, site)
-    k = TT_fp_1site_new_backwards(H, init, L, R, h, site, 100, 1E-13, false)
-    update = init + h*k 
+    k = TT_fp_1site_new_backwards(H, init, L, R, h, site, 100, 1E-12, false)
+    update = init - h*k 
     return update 
 end
 
 function TT_IMR_0site_new(H, init, L, R, h, site)
-    k = TT_fp_0site_new(H, init, L, R, h, site, 100, 1E-13, false)
-    update = init + h*k 
+    k = TT_fp_0site_new(H, init, L, R, h, site, 100, 1E-12, false)
+    update = init - h*k 
     return update 
 end
 
@@ -588,9 +588,14 @@ function tdvp2_constant(H::MPO, init::MPS, t0::Float64, T::Float64, steps::Int64
     # storage_arr[1,:] = vectorize_mps(init_copy; order = "natural")
     link_dim = zeros(steps + 1, N - 1)
     link_dim[1,:] = linkdims(init_copy)
-    magnet_history = zeros(steps + 1, N)
+    if strang == true 
+        magnet_history = zeros(2*steps + 1, N)
+    else
+        magnet_history = zeros(steps + 1, N)
+    end
     if magnet == true 
-        magnet_history[1,:] = reverse(expect(init_copy, [1 0; 0 -1]))
+        # magnet_history[1,:] = reverse(expect(init_copy, [1 0; 0 -1]))
+        magnet_history[1,:] = expect(init_copy, [1 0; 0 -1])
         # for j = 1:N 
             # magnet_history[1,j] = expect(init_copy, [1 0; 0 -1]; sites = j)
         # end
@@ -610,6 +615,7 @@ function tdvp2_constant(H::MPO, init::MPS, t0::Float64, T::Float64, steps::Int64
         # for i = 1:steps
             if verbose == true
                 println("Step: ", i)
+                println("Bond dimensions before evolution: ", linkdims(init_copy))
             end
             # init_copy = lr_sweep_new(H, init_copy, t0, h)
             # println("R_list")
@@ -619,6 +625,13 @@ function tdvp2_constant(H::MPO, init::MPS, t0::Float64, T::Float64, steps::Int64
             # println("Evolving left to right")
             # @time begin 
             init_copy, L_list, trunc1 = lr_sweep_2site_new(H, init_copy, R_list, h/2, cutoff, maxdim; normalize = normalize)
+            if magnet == true 
+                # magnet_history[2*i,:] = reverse(expect(init_copy, [1 0; 0 -1]))
+                magnet_history[2*i,:] = expect(init_copy, [1 0; 0 -1])
+                # for j = 1:N 
+                    # magnet_history[i + 1,j] = expect(init_copy, [1 0; 0 -1]; sites = j)
+                # end
+            end
             # println(L_list)
             # end
             # t0 += h
@@ -634,7 +647,9 @@ function tdvp2_constant(H::MPO, init::MPS, t0::Float64, T::Float64, steps::Int64
             # end
             link_dim[i + 1,:] = linkdims(init_copy)
             if magnet == true 
-                magnet_history[i + 1,:] = reverse(expect(init_copy, [1 0; 0 -1]))
+                # magnet_history[2*i + 1,:] = reverse(expect(init_copy, [1 0; 0 -1]))
+                magnet_history[2*i + 1,:] = expect(init_copy, [1 0; 0 -1])
+
                 # for j = 1:N 
                     # magnet_history[i + 1,j] = expect(init_copy, [1 0; 0 -1]; sites = j)
                 # end
@@ -658,6 +673,7 @@ function tdvp2_constant(H::MPO, init::MPS, t0::Float64, T::Float64, steps::Int64
             push!(R_list_list, R_list)
             if verbose == true 
                 println("Step: ", i)
+                println("Bond dimensions before evolution: ", linkdims(init_copy))
             end
             init_copy, L_list, trunc = lr_sweep_2site_new(H, init_copy, R_list, h, cutoff, maxdim; normalize = normalize)
             link_dim[i + 1,:] = linkdims(init_copy)
@@ -775,6 +791,7 @@ function tdvp2(H::MPO, init::MPS, t0::Float64, T::Float64, steps::Int64, bc_para
             R_list = contract_right(H, init_copy, 2)
             if verbose == true 
                 println("Step: ", i)
+                println("Bond dimensions before evolution: ", linkdims(init_copy))
             end
             init_copy, _, trunc = lr_sweep_2site_new(H, init_copy, R_list, h, cutoff, maxdim; normalize = normalize)
             link_dim[i + 1,:] = linkdims(init_copy)

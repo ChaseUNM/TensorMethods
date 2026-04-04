@@ -1,6 +1,30 @@
 using ITensors, ITensorMPS, LinearAlgebra 
 
+#returns maximum dimension of the left and right site indices for a quantum system where each subsystem has 2 energy levels
+function max_bond_dimension(i, N)
+    middle_site = (N + 1)/2
+    if i == 1
+        max_left = nothing 
+        max_right = 2
+    elseif i == N 
+        max_left = 2
+        max_right = nothing 
+    else
+        if i < middle_site 
+            max_left = 2^(i - 1)
+            max_right = 2^i 
+        elseif i > middle_site 
+            max_left = 2^(N - i + 1)
+            max_right = 2^(N - i)
+        elseif i == middle_site 
+            max_left = 2^(i - 1)
+            max_right = 2^(i - 1)
+        end
+    end
+    return max_left, max_right 
+end
 
+#Helper functions to get site index, left link index, and right link index. 
 function get_site_and_links(T::ITensor)
     site_idx = nothing
     left_link = nothing
@@ -51,195 +75,188 @@ function get_site_and_links(T::ITensor)
     return site_idx, left_link, right_link
 end
 
-
-function project_ortho_center(M::MPS, center::Int64, left_updated::MPS, right_updated::MPS)
+function sweep_right(H_mpo, M, h, center)
+    #Create new MPS to store updated sites
     N = length(M)
-    L_block = 1
-    R_block = 1
-    for i = 1:center - 1
-        L_block *= M[i]*conj(left_updated[i])
+    new_MPS = MPS(N)
+    #Create left and right environments for effective Hamiltonian
+    R_list = contract_right(H_mpo, M, 2)
+    L = 1
+    M_proj = M[1]
+    for i in 1:center - 1 
+        #Get site, left, and right indices so things will get matricized correctly
+        site_idx, left_idx, right_idx = get_site_and_links(M_proj)
+        #Update site
+        M_update = TT_IMR_1site_new(H_mpo, M_proj, L, R_list[i], h, i)
+        if i == 1
+            #Matricize updated and old tensors
+            M_update_arr = Array(M_update, right_idx, site_idx)
+            M_old_arr = Array(M_proj, right_idx, site_idx)
+            #Concatenate the matrices and then perform an orthogonalization factorization (either QR or SVD)
+            M_combine = hcat(transpose(M_update_arr), transpose(M_old_arr))
+            # Q, _ = qr(M_combine)
+            Q, _ = LLSV(M_combine)
+            row, col = size(M_combine)
+            #Convert Q back into an ITensor
+            Q = Q[:,1:min(row, col)]
+            new_right_index = Index(min(row, col); tags = "Link, l = 1")
+            Q_ten = ITensor(Q, new_right_index, siteinds(M)[1])
+
+        elseif i != 1
+            #Matricize the updated and old tensors, and then concatenate
+            M_update_arr = Array(M_update, left_idx, site_idx, right_idx)
+            M_proj_arr = Array(M_proj, left_idx, site_idx, right_idx)
+            M_proj_mat = matricization(M_proj_arr, 3)
+            M_update_mat = matricization(M_update_arr, 3)
+            M_combine = hcat(transpose(M_update_mat), transpose(M_proj_mat))
+
+            #Orthogonalize M_combine, either using QR or SVD
+
+            # Q, _ = qr(M_combine)
+            # row, col = size(M_combine)
+            # Q = Q[:, 1:min(row, col)]
+            Q, _ = LLSV(M_combine)
+            row, col = size(Q)
+
+            #Reshape Q into a tensor
+            new_right_index = Index(min(row, col); tags = "Link, l = $i")
+            Q_reshape = reshape(Q, dim(left_idx), dim(site_idx), dim(new_right_index))
+            Q_ten = ITensor(Q_reshape, left_idx, site_idx, new_right_index)
+        end 
+
+        #Update left environment for effective Hamiltonian 
+        L *= H_mpo[i]*Q_ten*conj(Q_ten)'
+        #Set i-th site in new MPS to be Q
+        new_MPS[i] = Q_ten
+        
+        #Update initial conditions
+        if i < center - 1
+            M_proj *= conj(new_MPS[i])*M[i + 1]
+        elseif i == center - 1
+            M_proj *= conj(new_MPS[i])
+        end
+          
     end
-    for i = N:-1:center + 1
-        # println(i)
-        R_block *= M[i]*conj(right_updated[i])
+    if center == 1
+        return new_MPS, 1, L 
+    else
+        return new_MPS, M_proj, L 
     end
-    updated_center = L_block*M[center]*R_block 
-    return updated_center 
 end
 
-#Choose an orthogonal center, this will remain the orthogonal center 
-function sweep_left_bug(H::MPO, M::MPS, h::Float64, center::Int64)
+function sweep_left(H::MPO, M::MPS, h::Float64, center::Int64)
     #Start with updating right-to-left until we get to the orthogonality center
+    #Create new MPS to store updated sites, and create left and right environments
+    #for effective Hamiltonain
     N = length(M)
     L_list = contract_left(H, M, N - 1)
     R_block = 1
-    M_copy = deepcopy(M)
+    new_MPS = MPS(N)
+    M_proj = M[N]
     for i in N:-1:center + 1
-        
+        #Get site, left, and right indices
+        site_idx, left_idx, right_idx = get_site_and_links(M_proj)
         #Update the i-th core
-        M_evolve = TT_IMR_1site_new(H, M_copy[i], L_list[i], R_block, h, i)
-        # println("Site $i updated")
-        # println(M_copy[i])
-        # println(M_evolve)
-        #Now need to matricize M_evolve and M[i]
-        if length(inds(M_copy[i])) == 2
-            M_mat = Array(M_copy[i], inds(M_copy[i]))
-            M_evolve_mat = Array(M_evolve, inds(M_evolve))
-            # M_combined = hcat(M_evolve_mat, M_mat)
-            M_combine = hcat(M_evolve_mat)
+        M_evolve = TT_IMR_1site_new(H, M_proj, L_list[i], R_block, h, i)
+        
+        #Now need to matricize M_evolve and M_proj
+        if length(inds(M_proj)) == 2
+            #Matricize old and updated sites
+            M_mat = Array(M_proj, left_idx, site_idx)
+            M_evolve_mat = Array(M_evolve, left_idx, site_idx)
+            #Concatenate old and updated matrices and perform an orthogonalization (QR or SVD)
+            M_combine = hcat(transpose(M_evolve_mat), transpose(M_mat))
             Q, R = qr(M_combine)
-
-
-
+            
+            #Convert Q back into a ITensor
             row, col = size(M_combine)
-
-            # Q = Q[1:row, 1:min(row, col, 2^i)]
             Q = Q[1:row, 1:min(row, col)]
             new_link = Index(min(row, col); tags="Link, l = $(i - 1)")
-            # println("Got here")
-            # println(siteinds(M)[i])
-            # println(new_link)
-            # display(Q)
-            Q_ten = ITensor(Q, siteinds(M_copy)[i], new_link)
+            Q_ten = ITensor(Q, siteinds(M)[i], new_link)
         end
 
-        if length(inds(M_copy[i])) == 3
-            site_idx, left_idx, right_idx = get_site_and_links(M_copy[i])
-            M_arr = Array(M_copy[i], left_idx, site_idx, right_idx)
+        if length(inds(M_proj)) == 3
+            #Matricize old and updated sites
+            M_arr = Array(M_proj, left_idx, site_idx, right_idx)
             M_evolve_arr = Array(M_evolve, left_idx, site_idx, right_idx)
-            # M_arr2 = Array(M_copy[i], site_idx, right_idx, left_idx)
-            # M_evolve_arr2 = Array(M_evolve, site_idx, right_idx, left_idx)
-            M_mat = reshape(M_arr, dim(left_idx), dim(site_idx)*dim(right_idx))
-            M_evolve_mat = reshape(M_evolve_arr, dim(left_idx), dim(site_idx)*dim(right_idx))
-            # M_mat2 = reshape(M_arr2, dim(right_idx)*dim(site_idx), dim(left_idx))
-            # M_evolve_mat2 = reshape(M_evolve_arr2, dim(right_idx)*dim(site_idx), dim(left_idx))
-            # println("Size M_Mat2: ", size(M_mat2))
-            # M_combine = hcat(transpose(M_evolve_mat), transpose(M_mat))
-            
-            # M_combine = vcat(M_evolve_mat, M_mat)
-            M_combine = hcat(M_evolve_mat)
+            M_mat = matricization(M_arr, 1)
+            M_evolve_mat = matricization(M_evolve_arr, 1)
+            #Concate old and updated matricized sites
+            M_combine = vcat(M_evolve_mat, M_mat)
 
-            # M_combine = hcat(M_evolve_mat2, M_mat2)
+            #Perform an orthogonalization of M_combine (either QR or SVD)
+            #Note: if using QR decomposition in order to maintain right-orthogonality a QR decomposition should be done
+            # on the conjugate transpose M_combine and then Q should be conjugate transposed back
+            # Q, R = qr(M_combine')
+            # _, _, Q = svd(M_combine)
+            # row, col = size(M_combine')
+            # Q = Q[:, 1:min(row, col)]
+            # Q = transpose(conj(Q))
 
-            Q, R = qr(M_combine')
-            # println("Size of M_combine:", size(M_combine))
-            
-            # println(new_left_idx)
-            row, col = size(M_combine')
-            # Q = Q[1:row, 1:min(row, col, 2^i)]
-            Q = Q[1:row, 1:min(row, col)]
+            Q, _ = RLSV(M_combine)
 
-            Q = transpose(conj(Q))
+            #Convert back into an ITensor object.
+            row, col = size(Q)
             new_left_idx = Index(min(row, col); tags = "Link, l = $(i - 1)")
-            # println("Size of Q: ", size(Q))
-            # println("size new_left_index: ", dim(new_left_idx))
-            # println("size right_index: ", dim(right_idx))
-            # println("size site_index: ", dim(site_idx))
             Q = Array(reshape(Q, dim(new_left_idx), dim(site_idx), dim(right_idx)))
 
             Q_ten = ITensor(Q, new_left_idx, site_idx, right_idx)
-            
-            # println("Got here")
+        
         end
-        R_block = R_block*H[i]*Q_ten*conj(Q_ten)'
-        M_copy[i-1] = M_copy[i-1]*M_copy[i]*conj(Q_ten)
-        M_copy[i] = Q_ten
+        #Update right environment
+        R_block *= H[i]*Q_ten*conj(Q_ten)'
+        #Set new site to be Q
+        new_MPS[i] = Q_ten
+        #Update initial condition for next site update
+        if i > center + 1
+            M_proj *= conj(new_MPS[i])*M[i - 1]
+        elseif i == center + 1
+            M_proj *= conj(new_MPS[i])
+        end
+
     end
-    return M_copy, R_block 
+    if center == N 
+        return new_MPS, 1, R_block 
+    else
+        return new_MPS, M_proj, R_block
+    end
 end
 
-function sweep_right_bug(H::MPO, M::MPS, h::Float64, center::Int64)
+
+function mps_bug_step(H_mpo, M, h, center)
     N = length(M)
-    R_list = contract_right(H, M, 2)
-    L_block = 1
-    M_copy = deepcopy(M)
+    #sweep-right to return updated left sites
+    M_l, M_l_proj, L_block = sweep_right(H_mpo, M, h, center)
 
-    for i in 1:center - 1
-
-        M_evolve = TT_IMR_1site_new(H, M_copy[i], L_block, R_list[i], h, i)
-
-        # println("Site $i updated")
-        if length(inds(M_copy[i])) == 2
-            M_mat = Array(M_copy[i], inds(M_copy[i]))
-            M_evolve_mat = Array(M_evolve, inds(M_evolve))
-            # M_combine = hcat(M_evolve_mat, M_mat)
-            M_combine = hcat(M_evolve_mat)
-            Q, R = qr(M_combine)
-            row, col = size(M_combine)
-            # Q = Q[1:row, 1:min(row, col, 2^i)]
-            Q = Q[1:row, 1:min(row, col)]
-            new_link = Index(min(row, col); tags = "Link, l = $i")
-            # println("Got here")
-            Q_ten = ITensor(Q, siteinds(M_copy)[i], new_link)
-        end
-
-        if length(inds(M[i])) == 3
-            site_idx, left_idx, right_idx = get_site_and_links(M_copy[i])
-            M_arr = Array(M_copy[i], left_idx, site_idx, right_idx)
-            M_evolve_arr = Array(M_evolve, left_idx, site_idx, right_idx)
-            M_mat = reshape(M_arr, dim(right_idx), dim(left_idx)*dim(site_idx))
-            M_evolve_mat = reshape(M_evolve_arr, dim(right_idx), dim(left_idx)*dim(site_idx))
-            # M_mat2 = reshape(M_arr, dim(left_idx)*dim(site_idx), dim(right_idx))
-            # M_evolve_mat2 = reshape(M_evolve_arr, dim(left_idx)*dim(site_idx), dim(right_idx))
-            # println("diff matrices: ", norm(transpose(M_mat) - M_mat2))
-            # M_combine = hcat(transpose(M_evolve_mat), transpose(M_mat))
-            M_combine = hcat(M_evolve_mat)
-
-            # M_combine = hcat(M_evolve_mat2, M_mat2)
-            Q, R = qr(M_combine)
-            println("size M_combine: ", size(M_combine))
-            # println("Size of M combine: ", size(M_combine))
-            row, col = size(M_combine)
-            
-            # Q = Q[1:row, 1:min(row, col, 2^i)]
-            Q = Q[1:row, 1:min(row, col)]
-            println("size Q: ", size(Q))
-            new_right_idx = Index(min(row, col), tags = "Link, l = $i")
-            Q = reshape(Q, dim(left_idx), dim(site_idx), dim(new_right_idx))
-            Q_ten = ITensor(Q, left_idx, site_idx, new_right_idx)
-            # println("Got here")
-        end
-        L_block = L_block*H[i]*Q_ten*conj(Q_ten)'
-        M_copy[i + 1] = M_copy[i + 1]*M_copy[i]*conj(Q_ten)
-        M_copy[i] = Q_ten 
-    end
-    return M_copy, L_block
-end
-
-function mps_bug_step(H::MPO, M::MPS, h::Float64, center::Int64)
-    N = length(M)
-    
-    M_r, R_block = sweep_left_bug(H, M, h, center)
-    M_l, L_block = sweep_right_bug(H, M, h, center)
-    M_center = project_ortho_center(M, center, M_l, M_r)
-    # println("Norm M_center: ", norm(M_center))
-    # println("inds M_center: ", inds(M_center))
-    # println("inds L_block: ", inds(L_block))
-    # println("inds R_block: ", inds(R_block))
-    # println("inds H[center]: ", inds(H[center]))
-    M_center_evolve = TT_IMR_1site_new(H, M_center, L_block, R_block, h, center)
-    # println("Site $center updated")
+    M_r, M_r_proj, R_block = sweep_left(H_mpo, M, h, center)
+    #Get initial conditions for center update
+    center_proj = M_l_proj*M[center]*M_r_proj
+    #Update center site
+    center_update = TT_IMR_1site_new(H_mpo, center_proj, L_block, R_block, h, center)
     updated_MPS = MPS(N)
+    #In new MPS set sites using M_l, M_r, and center_update
     for i in 1:center - 1
         updated_MPS[i] = M_l[i]
     end
+
     for i in N:-1:center + 1
         updated_MPS[i] = M_r[i]
     end
-    updated_MPS[center] = M_center_evolve 
+
+    updated_MPS[center] = center_update 
+
     return updated_MPS 
 end
 
-function mps_bug_constant(H::MPO, M::MPS, t0::Float64, T::Float64, steps::Int64, center::Union{Nothing, Int64} = nothing; cutoff::Union{Nothing, Float64}=nothing, maxdim::Union{Nothing, Float64}=nothing, magnet::Bool=false, energy::Bool=false)
-    # if orthoCenter(M) != center 
-    #     orthogonalize!(M, center)
-    # end
+function mps_bug_constant(H, M, t0, T, steps ; center::Union{Nothing,Int64} = nothing, cutoff::Union{Nothing,Float64} = nothing, maxdim::Union{Nothing,Int64} = nothing, magnet::Bool = false, energy::Bool = false, verbose::Bool = false)
     h = (T - t0)/steps 
     M_copy = deepcopy(M)
     N = length(M)
     if center == nothing 
         center = Int64(ceil(N/2))
+
     end
+
     magnet_history = zeros(steps + 1, N)
     energy_history = zeros(steps + 1)
     link_dim = zeros(steps + 1, N - 1)
@@ -252,13 +269,14 @@ function mps_bug_constant(H::MPO, M::MPS, t0::Float64, T::Float64, steps::Int64,
     end 
 
     @showprogress 1 "BUG for Tensor-trains" for i in 1:steps 
-        # println("Step $i")
+
         M_copy = mps_bug_step(H, M_copy, h, center)
+
         if cutoff != nothing
             truncate!(M_copy; cutoff = cutoff)
         end
-        if maxdim != nothing 
-            truncate!(M_copy; maxdim = maxdim)
+        if maxdim == nothing 
+            truncate!(M_copy; maxdim = 2^Int64(floor(N/2)))
         end
         link_dim[i + 1, :] = linkdims(M_copy)
         if magnet == true 
@@ -268,6 +286,10 @@ function mps_bug_constant(H::MPO, M::MPS, t0::Float64, T::Float64, steps::Int64,
             energy_history[i + 1] = real(inner(M_copy', H, M_copy))
         end
         link_dim[i + 1,:] = linkdims(M_copy)
+        if verbose == true 
+            println("Step $i")
+            println("Bond Dimensions: ", linkdims(M_copy))
+        end
     end
     return M_copy, link_dim, magnet_history, energy_history
 end
@@ -278,6 +300,7 @@ function mps_bug(H::MPO, bc_params::bcparams, M::MPS, t0::Float64, T::Float64, s
     N = length(M)
     if center == nothing 
         center = Int64(ceil(N/2))
+
     end
     magnet_history = zeros(steps + 1, N)
     energy_history = zeros(steps + 1)
