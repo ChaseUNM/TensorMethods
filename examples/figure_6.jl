@@ -1,3 +1,4 @@
+using Revise
 using ITensors, ITensorMPS, LinearAlgebra, DelimitedFiles, Plots, CPUTime, LaTeXStrings
 using TensorMethods
 
@@ -16,7 +17,7 @@ using TensorMethods
 # -------------------------
 # Toggle which methods to run
 # -------------------------
-run_tdvp = true
+run_tdvp = false
 run_bug_tucker = false
 run_bug_mps = true
 
@@ -25,7 +26,7 @@ run_bug_mps = true
 # -------------------------
 
 # Number of qubits
-N = 10
+N = 15
 
 # Create qubit site indices and local dimensions
 sites = siteinds("Qubit", N)
@@ -295,7 +296,7 @@ if run_bug_mps
         ylabel = "Total tensor-train entries",
         xscale = :log10,
         dpi = 250,
-        title = "MPS-BUG Storage vs Cutoff"
+        title = "MPS-BUG Storage vs Cutoff (1-site-truncation)"
     )
 
     cutoff_err_plot_bug_mps = plot(
@@ -309,7 +310,7 @@ if run_bug_mps
         legend = :topleft,
         legend_columns = 2,
         dpi = 250,
-        title = "MPS-BUG Error vs Cutoff"
+        title = "MPS-BUG Error vs Cutoff (1-site-truncation)"
     )
 end
 
