@@ -75,6 +75,290 @@ function get_site_and_links(T::ITensor)
     return site_idx, left_link, right_link
 end
 
+function TDVP1_style_truncation(M::MPS, center::Int64; cutoff::Float64 = 1E-10)
+    M_trunc = deepcopy(M)
+    N = length(M)
+
+    for i in 1:center - 1
+        site_idx, left_idx, right_idx = get_site_and_links(M_trunc[i])
+        # println("M_trunc[$(i)] inds: ", inds(M_trunc[i]))
+        # println("M_trunc[$(i + 1)] inds: ", inds(M_trunc[i + 1]))
+        if i == 1 
+            row_inds = Vector{Index}(undef, 1)
+            row_inds[1] = site_idx
+        else
+            row_inds = Vector{Index}(undef, 2)
+            row_inds[1] = left_idx 
+            row_inds[2] = site_idx
+        end
+        U, S, V, spectrum = svd(M_trunc[i], row_inds; cutoff = cutoff, lefttags = "Link, l = $(i)")
+        # println("U inds", inds(U))
+        # println("S inds: ", inds(S))
+        # println("V inds: ", inds(V))
+        
+        M_trunc[i] = U 
+        M_trunc[i + 1] = M_trunc[i + 1]*S*V
+    end
+
+    for i in N:-1:center + 1 
+        site_idx, left_idx, right_idx = get_site_and_links(M_trunc[i])
+        if i == N 
+            row_inds = Vector{Index}(undef, 1)
+            row_inds = left_idx 
+        else
+            row_inds = Vector{Index}(undef, 1)
+            row_inds[1] = left_idx
+        end
+        U, S, V, spectrum = svd(M_trunc[i], row_inds; cutoff = cutoff, righttags = "Link, l = $(i-1)")
+        M_trunc[i] = V 
+        M_trunc[i-1] = M_trunc[i - 1]*U*S 
+    
+    end
+
+    return M_trunc 
+end
+
+function orthogonalize_right_to_left(M::MPS, start_site::Int64, end_site::Int64)
+    M_ortho = deepcopy(M)
+    for i in start_site:-1:end_site + 1
+        M_site = M_ortho[i]
+        site_idx, left_idx, right_idx = get_site_and_links(M_site)
+        R, Q = factorize(M_site, left_idx; ortho="right", tags = "Link, l = $(i-1)")
+        M_ortho[i] = Q 
+        M_ortho[i - 1] = M_ortho[i - 1]*R
+    end
+    return M_ortho 
+end
+
+function orthogonalize_right_to_left!(M::MPS, start_site::Int64, end_site::Int64)
+
+    for i in start_site:-1:end_site + 1
+        M_site = M[i]
+        site_idx, left_idx, right_idx = get_site_and_links(M_site)
+        R, Q = factorize(M_site, left_idx; ortho="right", tags = "Link, l = $(i-1)")
+        M[i] = Q 
+        M[i - 1] = M[i - 1]*R
+    end
+end
+
+function orthogonalize_left_to_right(M::MPS, start_site::Int64, end_site::Int64)
+    M_ortho = deepcopy(M)
+    for i in start_site:end_site - 1
+        M_site = M_ortho[i]
+        site_idx, left_idx, right_idx = get_site_and_links(M_site)
+        if i == 1
+            row_inds = site_idx 
+        else
+            row_inds = Vector{Index}(undef, 2)
+            row_inds[1] = left_idx 
+            row_inds[2] = site_idx 
+        end
+        Q, R = qr(M_site, row_inds; tags = "Link, l = $i")
+        M_ortho[i] = Q 
+        M_ortho[i + 1] = R*M_ortho[i + 1]
+    end
+    return M_ortho 
+end
+
+function orthogonalize_left_to_right!(M::MPS, start_site::Int64, end_site::Int64)
+
+    for i in start_site:end_site - 1
+        M_site = M[i]
+        site_idx, left_idx, right_idx = get_site_and_links(M_site)
+        if i == 1
+            row_inds = site_idx 
+        else
+            row_inds = Vector{Index}(undef, 2)
+            row_inds[1] = left_idx 
+            row_inds[2] = site_idx 
+        end
+        Q, R = qr(M_site, row_inds; tags = "Link, l = $i")
+        M[i] = Q 
+        M[i + 1] = R*M[i + 1]
+    end
+
+end
+
+function TDVP1_style_truncation_move_orthogonal(M::MPS, center::Int64; cutoff::Float64 = 1E-10)
+    orthogonalize_right_to_left!(M, center, 1)
+    M_trunc = deepcopy(M)
+    N = length(M)
+    
+    for i in 1:center - 1
+        site_idx, left_idx, right_idx = get_site_and_links(M_trunc[i])
+        # println("M_trunc[$(i)] inds: ", inds(M_trunc[i]))
+        # println("M_trunc[$(i + 1)] inds: ", inds(M_trunc[i + 1]))
+        if i == 1 
+            row_inds = Vector{Index}(undef, 1)
+            row_inds[1] = site_idx
+        else
+            row_inds = Vector{Index}(undef, 2)
+            row_inds[1] = left_idx 
+            row_inds[2] = site_idx
+        end
+        U, S, V, spectrum = svd(M_trunc[i], row_inds; cutoff = cutoff, lefttags = "Link, l = $(i)")
+        # println("U inds", inds(U))
+        # println("S inds: ", inds(S))
+        # println("V inds: ", inds(V))
+        
+        M_trunc[i] = U 
+        M_trunc[i + 1] = M_trunc[i + 1]*S*V
+    end
+    orthogonalize_left_to_right!(M_trunc, center, N)
+    for i in N:-1:center + 1 
+        site_idx, left_idx, right_idx = get_site_and_links(M_trunc[i])
+        if i == N 
+            row_inds = Vector{Index}(undef, 1)
+            row_inds = left_idx 
+        else
+            row_inds = Vector{Index}(undef, 1)
+            row_inds[1] = left_idx
+        end
+        U, S, V, spectrum = svd(M_trunc[i], row_inds; cutoff = cutoff, righttags = "Link, l = $(i-1)")
+        M_trunc[i] = V 
+        M_trunc[i-1] = M_trunc[i - 1]*U*S 
+    
+    end
+
+    return M_trunc 
+end
+
+function TDVP2_style_truncation(M::MPS, center::Int64; cutoff::Float64 = 1E-10)
+    M_trunc = deepcopy(M)
+    N = length(M)
+    # M_copy = deepcopy(M)
+    # spectrum_list = []
+    for i in 1:center - 2
+        M_combine = M_trunc[i]*M_trunc[i + 1]
+        M_inds = inds(M_combine)
+        if i == 1 
+            row_inds = M_inds[1]
+        else
+            row_inds = M_inds[1:2]
+        end
+        U, S, V, spectrum = svd(M_combine, row_inds; cutoff = cutoff, lefttags = "Link, l = $(i)")
+        # println("Bond $i-$(i + 1) Spectrum: ")
+        # display(spectrum.eigs)
+        # push!(spectrum_list, spectrum)
+        M_trunc[i] = U 
+        M_trunc[i + 1] = S*V
+    end
+    for i in N:-1:center + 2 
+        M_combine = M_trunc[i - 1]*M_trunc[i]
+        M_inds = inds(M_combine)
+        # println("right inds for site $i: ", M_inds)
+        if i == N 
+            row_inds = M_inds[1:2]
+        else
+            row_inds = M_inds[1:2]
+        end
+        U, S, V, spectrum = svd(M_combine, row_inds; cutoff = cutoff, righttags = "Link, l = $(i-1)")
+        # println("Bond $i-$(i + 1) Spectrum: ")
+        # display(spectrum.eigs)
+        # push!(spectrum_list, spectrum)
+        M_trunc[i] = V 
+        M_trunc[i-1] = U*S 
+    end
+
+    #Now truncate the bond dimensions to the left and right of the orthogonality center starting with left bond dimension
+    M_combine_left = M_trunc[center - 1]*M_trunc[center]
+    M_inds = inds(M_combine_left)
+    if length(M_inds) == 3 
+        row_inds = M_inds[1]
+    else
+        row_inds = M_inds[1:2]
+    end
+    U, S, V, spectrum = svd(M_combine_left, row_inds; cutoff = cutoff, lefttags = "Link, l = $(center - 1)")
+    # println("Site $(center-1)-$center Spectrum: ")
+    # display(spectrum.eigs)
+    # push!(spectrum_list, spectrum)
+    M_trunc[center - 1] = U 
+    M_trunc[center] = S*V 
+
+    #Now right bond dimension 
+    M_combine_right = M_trunc[center]*M_trunc[center + 1]
+    M_inds = inds(M_combine_right)
+
+    if length(M_inds) == 3
+        row_inds = M_inds[1:2]
+    else
+        row_inds = M_inds[1:2]
+    end
+    U, S, V, spectrum = svd(M_combine_right, row_inds; cutoff = cutoff, righttags = "Link, l = $(center)")
+    # println("Site $center-$(center + 1) Spectrum: ")
+    # display(spectrum.eigs)
+    # push!(spectrum_list, spectrum)
+    M_trunc[center + 1] = V 
+    M_trunc[center] = U*S 
+
+    return M_trunc
+end
+
+function TDVP2_style_truncation_move_orthogonal(M::MPS, center::Int64; cutoff::Float64 = 1E-10)
+    M_trunc = deepcopy(M)
+    N = length(M)
+    # M_copy = deepcopy(M)
+    # spectrum_list = []
+    orthogonalize!(M_trunc, 1)
+    for i in 1:center - 2
+        M_combine = M_trunc[i]*M_trunc[i + 1]
+        M_inds = inds(M_combine)
+        if i == 1 
+            row_inds = M_inds[1]
+        else
+            row_inds = M_inds[1:2]
+        end
+        U, S, V, spectrum = svd(M_combine, row_inds; cutoff = cutoff, lefttags = "Link, l = $(i)")
+        # push!(spectrum_list, spectrum)
+        M_trunc[i] = U 
+        M_trunc[i + 1] = S*V
+    end
+    orthogonalize!(M_trunc, N)
+    for i in N:-1:center + 2 
+        M_combine = M_trunc[i - 1]*M_trunc[i]
+        M_inds = inds(M_combine)
+        # println("right inds for site $i: ", M_inds)
+        if i == N 
+            row_inds = M_inds[1:2]
+        else
+            row_inds = M_inds[1:2]
+        end
+        U, S, V, spectrum = svd(M_combine, row_inds; cutoff = cutoff, righttags = "Link, l = $(i-1)")
+        # push!(spectrum_list, spectrum)
+        M_trunc[i] = V 
+        M_trunc[i-1] = U*S 
+    end
+
+    #Now truncate the bond dimensions to the left and right of the orthogonality center starting with left bond dimension
+    M_combine_left = M_trunc[center - 1]*M_trunc[center]
+    M_inds = inds(M_combine_left)
+    if length(M_inds) == 3 
+        row_inds = M_inds[1]
+    else
+        row_inds = M_inds[1:2]
+    end
+    U, S, V, spectrum = svd(M_combine_left, row_inds; cutoff = cutoff, lefttags = "Link, l = $(center - 1)")
+    # push!(spectrum_list, spectrum)
+    M_trunc[center - 1] = U 
+    M_trunc[center] = S*V 
+
+    #Now right bond dimension 
+    M_combine_right = M_trunc[center]*M_trunc[center + 1]
+    M_inds = inds(M_combine_right)
+
+    if length(M_inds) == 3
+        row_inds = M_inds[1:2]
+    else
+        row_inds = M_inds[1:2]
+    end
+    U, S, V, spectrum = svd(M_combine_right, row_inds; cutoff = cutoff, righttags = "Link, l = $(center)")
+    # push!(spectrum_list, spectrum)
+    M_trunc[center + 1] = V 
+    M_trunc[center] = U*S 
+
+    return M_trunc
+end
+
 function sweep_right(H_mpo, M, h, center)
     #Create new MPS to store updated sites
     N = length(M)
@@ -94,8 +378,8 @@ function sweep_right(H_mpo, M, h, center)
             M_old_arr = Array(M_proj, right_idx, site_idx)
             #Concatenate the matrices and then perform an orthogonalization factorization (either QR or SVD)
             M_combine = hcat(transpose(M_update_arr), transpose(M_old_arr))
-            # Q, _ = qr(M_combine)
-            Q, _ = LLSV(M_combine)
+            Q, _ = qr(M_combine)
+            # Q, _ = LLSV(M_combine)
             row, col = size(M_combine)
             #Convert Q back into an ITensor
             Q = Q[:,1:min(row, col)]
@@ -112,11 +396,11 @@ function sweep_right(H_mpo, M, h, center)
 
             #Orthogonalize M_combine, either using QR or SVD
 
-            # Q, _ = qr(M_combine)
-            # row, col = size(M_combine)
-            # Q = Q[:, 1:min(row, col)]
-            Q, _ = LLSV(M_combine)
-            row, col = size(Q)
+            Q, _ = qr(M_combine)
+            row, col = size(M_combine)
+            Q = Q[:, 1:min(row, col)]
+            # Q, _ = LLSV(M_combine)
+            # row, col = size(Q)
 
             #Reshape Q into a tensor
             new_right_index = Index(min(row, col); tags = "Link, l = $i")
@@ -155,6 +439,7 @@ function sweep_left(H::MPO, M::MPS, h::Float64, center::Int64)
     M_proj = M[N]
     for i in N:-1:center + 1
         #Get site, left, and right indices
+
         site_idx, left_idx, right_idx = get_site_and_links(M_proj)
         #Update the i-th core
         M_evolve = TT_IMR_1site_new(H, M_proj, L_list[i], R_block, h, i)
@@ -187,13 +472,13 @@ function sweep_left(H::MPO, M::MPS, h::Float64, center::Int64)
             #Perform an orthogonalization of M_combine (either QR or SVD)
             #Note: if using QR decomposition in order to maintain right-orthogonality a QR decomposition should be done
             # on the conjugate transpose M_combine and then Q should be conjugate transposed back
-            # Q, R = qr(M_combine')
+            Q, R = qr(M_combine')
             # _, _, Q = svd(M_combine)
-            # row, col = size(M_combine')
-            # Q = Q[:, 1:min(row, col)]
-            # Q = transpose(conj(Q))
+            row, col = size(M_combine')
+            Q = Q[:, 1:min(row, col)]
+            Q = transpose(conj(Q))
 
-            Q, _ = RLSV(M_combine)
+            # Q, _ = RLSV(M_combine)
 
             #Convert back into an ITensor object.
             row, col = size(Q)
@@ -262,25 +547,33 @@ function mps_bug_constant(H, M, t0, T, steps ; center::Union{Nothing,Int64} = no
     link_dim = zeros(steps + 1, N - 1)
     link_dim[1,:] = linkdims(M_copy)
     if magnet == true 
-        magnet_history[1,:] = reverse(expect(M_copy, [1 0; 0 -1]))
+        magnet_history[1,:] = (expect(M_copy, [1 0; 0 -1]))
     end
     if energy == true 
         energy_history[1] = real(inner(M_copy', H, M_copy))
     end 
 
     @showprogress 1 "BUG for Tensor-trains" for i in 1:steps 
-
+        # println("Step $i")
         M_copy = mps_bug_step(H, M_copy, h, center)
-
+        # display(M_copy)
         if cutoff != nothing
-            truncate!(M_copy; cutoff = cutoff)
+            # M_copy = TDVP2_style_truncation(M_copy, center; cutoff = cutoff)
+            M_copy = TDVP1_style_truncation_move_orthogonal(M_copy, center; cutoff = cutoff)
+            # truncate!(M_copy; cutoff = cutoff)
+        else
+            # M_copy = TDVP2_style_truncation(M_copy, center; cutoff = 1E-15)
+            M_copy = TDVP1_style_truncation_move_orthogonal(M_copy, center; cutoff = 1E-15)
+            # truncate!(M_copy; cutoff = 1E-15)
         end
-        if maxdim == nothing 
-            truncate!(M_copy; maxdim = 2^Int64(floor(N/2)))
-        end
+        # display(M_copy)
+        # if maxdim == nothing 
+        #     M_copy = TDVP2_style_truncation(M_copy, center; cutoff = 1E-15)
+        # end
         link_dim[i + 1, :] = linkdims(M_copy)
+        
         if magnet == true 
-            magnet_history[i + 1,:] = reverse(expect(M_copy, [1 0; 0 -1]))
+            magnet_history[i + 1,:] = (expect(M_copy, [1 0; 0 -1]))
         end
         if energy == true 
             energy_history[i + 1] = real(inner(M_copy', H, M_copy))
@@ -307,7 +600,7 @@ function mps_bug(H::MPO, bc_params::bcparams, M::MPS, t0::Float64, T::Float64, s
     link_dim = zeros(steps + 1, N - 1)
     link_dim[1,:] = linkdims(M_copy)
     if magnet == true 
-        magnet_history[1,:] = reverse(expect(M_copy, [1 0; 0 -1]))
+        magnet_history[1,:] = (expect(M_copy, [1 0; 0 -1]))
     end
     if energy == true 
         energy_history[1] = real(inner(M_copy', H, M_copy))
@@ -317,14 +610,16 @@ function mps_bug(H::MPO, bc_params::bcparams, M::MPS, t0::Float64, T::Float64, s
         M_copy = mps_bug_step(H, M_copy, h, center)
         t0 += h
         if cutoff != nothing
-            truncate!(M_copy; cutoff = cutoff)
+            # truncate!(M_copy; cutoff = cutoff)
+            M_copy = TDVP1_style_truncation_move_orthogonal(M_copy, center; cutoff = cutoff)
         end
         if maxdim != nothing 
-            truncate!(M_copy; maxdim = maxdim)
+            # truncate!(M_copy; maxdim = maxdim)
+            M_copy = TDVP1_style_truncation_move_orthogonal(M_copy, center; cutoff = 1E-15)
         end
         link_dim[i + 1, :] = linkdims(M_copy)
         if magnet == true 
-            magnet_history[i + 1,:] = reverse(expect(M_copy, [1 0; 0 -1]))
+            magnet_history[i + 1,:] = (expect(M_copy, [1 0; 0 -1]))
         end
         if energy == true 
             energy_history[i + 1] = real(inner(M_copy', H, M_copy))
