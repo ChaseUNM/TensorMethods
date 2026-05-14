@@ -1,4 +1,4 @@
-using LinearAlgebra, ITensors, ITensorMPS, Plots, BenchmarkTools, Printf
+using LinearAlgebra, ITensors, ITensorMPS, Plots, BenchmarkTools, Printf, JLD2
 using TensorMethods
 
 ###################################################################################################
@@ -10,7 +10,7 @@ using TensorMethods
 # Set up initial time, final time, and number of time steps
 t0 = 0.0
 T = 5.0
-steps = 250
+steps = 500
 
 # Set the smallest and largest number of subsystems (qubits)
 N_min = 3
@@ -38,7 +38,7 @@ p = 5
 eps = 10.0 ^ -p 
 
 # center = 1
-
+g = 0.0
 # For each qubit count n, evolve the system with tdvp2 and BUG
 # and measure the execution time
 for n in N_list 
@@ -52,8 +52,8 @@ for n in N_list
 
     # Construct the Hamiltonian MPO
     # Here this appears to be a scaled XXX Hamiltonian with parameters J=1.0, g=0.0
-    g = 0.0
-    H = xxx_mpo_scaled(n, sites, 1.0, 0.0)
+    
+    H = xxx_mpo_scaled(n, sites, 1.0, g)
 
     # Define the initial separable product state |0,0,...,0>
     q_state = Int64.(fill(0, n))
@@ -66,7 +66,7 @@ for n in N_list
     # Use a sufficiently small cutoff to avoid significant truncation
     # strang = true (indicates Strang splitting)
     t_list_tdvp[n - N_min + 1] = @elapsed begin
-        _,_,_,_,_= tdvp2_constant(H, init_MPS_copy, t0, T, Int64(steps/2);cutoff = eps^2, verbose = true, strang = true)
+        _,_,_,_,_= tdvp2_constant(H, init_MPS_copy, t0, T, Int64(steps/2);cutoff = eps^2, verbose = false, strang = true)
     end
 
     # Run TDVP2 again to collect the bond dimension history
@@ -81,18 +81,18 @@ for n in N_list
     end
 
     # Run BUG again to collect the bond dimension history
-    _,bd_history_bug,_,_ = mps_bug_constant(H, init_MPS_copy, t0, T, steps; cutoff = eps^2, verbose = false)
+    _,bd_history_bug,_,_ = mps_bug_constant(H, init_MPS_copy, t0, T, steps; cutoff = eps^2, verbose = true)
 
     # Store the BUG bond dimension history for this system size
     push!(bd_bug, bd_history_bug)
 
     # Run TDVP2 once more with a very small cutoff to estimate
     # bond dimensions / truncation error more accurately
-    _,bd_history,_,_,trunc_err= tdvp2_constant(H, init_MPS_copy, t0, T, Int64(steps/2);cutoff = 1E-15^2)
+    # _,bd_history,_,_,trunc_err= tdvp2_constant(H, init_MPS_copy, t0, T, Int64(steps/2);cutoff = 1E-15^2)
 
     # Count the total number of tensor entries used over the evolution history
-    entries_history = count_MPS_history(bd_history, N_levels)
-    push!(total_entries_list, entries_history)
+    # entries_history = count_MPS_history(bd_history, N_levels)
+    # push!(total_entries_list, entries_history)
 
     # Optionally store truncation error history
     # push!(trunc_err_list, trunc_err)
@@ -100,13 +100,13 @@ for n in N_list
 end
 
 # Save BUG bond dimension histories to disk
-save_object("bd_bug_eps_minus_$(p)_$(steps)steps_g_$(g)_Nmin_$(N_min)_Nmax_$(N_max)", bd_bug)
+save_object("bd_bug_eps_minus_$(p)_$(steps)steps_g_$(g)_Nmin_$(N_min)_Nmax_$(N_max)_single_site_truncation_mo.jld2", bd_bug)
 
 # Save TDVP bond dimension histories to disk
-save_object("bd_tdvp_eps_minus_$(p)_$(steps)steps_g_$(g)_Nmin_$(N_min)_Nmax_$(N_max)", bd_tdvp)
+save_object("bd_tdvp_eps_minus_$(p)_$(steps)steps_g_$(g)_Nmin_$(N_min)_Nmax_$(N_max).jld2", bd_tdvp)
 
 # Save BUG runtimes to disk
-save_object("time_bug_eps_minus_$(p)_$(steps)steps_g_$(g)_Nmin_$(N_min)_Nmax_$(N_max)", t_list_bug)
+save_object("time_bug_eps_minus_$(p)_$(steps)steps_g_$(g)_Nmin_$(N_min)_Nmax_$(N_max)_single_site_truncation_mo.jld2", t_list_bug)
 
 # Save TDVP runtimes to disk
-save_object("time_tdvp_eps_minus_$(p)_$(steps)steps_g_$(g)_Nmin_$(N_min)_Nmax_$(N_max)", t_list_tdvp)
+save_object("time_tdvp_eps_minus_$(p)_$(steps)steps_g_$(g)_Nmin_$(N_min)_Nmax_$(N_max).jld2", t_list_tdvp)
