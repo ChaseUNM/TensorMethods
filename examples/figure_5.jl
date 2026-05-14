@@ -2,7 +2,7 @@ using LinearAlgebra, ITensors, ITensorMPS, Plots, BenchmarkTools, Printf, JLD2
 using TensorMethods
 
 ###################################################################################################
-# Generate data for Figure 5 (arxiv 2603.13990)
+# Generate data for Figure 5 (arxiv 2603.13990) which can then be passed into a plotting script (figure_5_plotting.jl) to create the final figure. This script focuses on collecting bond dimension histories and runtimes for TDVP and BUG methods across a range of system sizes (3 to 100 qubits) for a specific Hamiltonian evolution.
 ###################################################################################################
 
 # Get timings for n = 3:100 qubits
