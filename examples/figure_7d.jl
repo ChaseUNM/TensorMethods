@@ -200,7 +200,7 @@ diff_plot_mps_bug_tdvp = plot(
     yscale = :log10,
     xscale = :log10,
     xlabel = "εₙ (SVD Truncation Parameter)",
-    label = "MPS - TDVP",
+    label = L"\|\psi_{\mathrm{BUG}}(ε_n) - \psi_{\mathrm{TDVP2}}(ε_n)\|",
     title = "Ising Model with N = $N qubits",
     yticks = [10^-1, 10^-3, 10^-5, 10^-7, 10^-9, 10^-11, 10^-13],
     xticks = [10^-2, 10^-3, 10^-4, 10^-5, 10^-6, 10^-7, 10^-8, 10^-9, 10^-10, 10^-11, 10^-12, 10^-13, 10^-14, 10^-15],
@@ -209,14 +209,14 @@ diff_plot_mps_bug_tdvp = plot(
     legend_columns = 3, 
     xlims = (10^-15, 10^-2),
     ylims = (10^-13, 10^1),
-    legendfontsize = 8
+    legendfontsize = 6
 )
 
-plot!(cutoff_arr, diff_arr_magnet_mps_bug_tdvp, label = "magnet (MPS - TDVP)")
-plot!(cutoff_arr[1:length(cutoff_arr) - 1], diff_arr, label = "TDVP")
-plot!(cutoff_arr[1:length(cutoff_arr) - 1], diff_arr_magnet, label = "magnet (TDVP)")
-plot!(cutoff_arr[1:length(cutoff_arr) - 1], diff_arr_mps_bug, label = "MPS-BUG")
-plot!(cutoff_arr[1:length(cutoff_arr) - 1], diff_arr_magnet_mps_bug, label = "magnet (MPS-BUG)")
+plot!(cutoff_arr, diff_arr_magnet_mps_bug_tdvp, label = L"|m_{\mathrm{BUG}}(ε_n) - m_{\mathrm{TDVP2}}(ε_n)|")
+plot!(cutoff_arr[1:length(cutoff_arr) - 1], diff_arr, label = L"\|\psi_{\mathrm{TDVP2}}(ε_n) - \psi_{\mathrm{TDVP2}}(ε_{n + 1})\|")
+plot!(cutoff_arr[1:length(cutoff_arr) - 1], diff_arr_magnet, label = L"|m_{\mathrm{TDVP2}}(ε_n) - m_{\mathrm{TDVP2}}(ε_{n + 1})|")
+plot!(cutoff_arr[1:length(cutoff_arr) - 1], diff_arr_mps_bug, label = L"\|\psi_{\mathrm{BUG}}(ε_n) - \psi_{\mathrm{BUG}}(ε_{n + 1})\|")
+plot!(cutoff_arr[1:length(cutoff_arr) - 1], diff_arr_magnet_mps_bug, label = L"|m_{\mathrm{BUG}}(ε_n) - m_{\mathrm{BUG}}(ε_{n + 1})|")
 
 if N <= 10
      # If we have a true final state, also compute differences to the true state
@@ -227,13 +227,13 @@ if N <= 10
     plot!(
         cutoff_arr,
         diff_arr_true,
-        label = "TDVP - True State",
+        label = L"\|\psi_{\mathrm{TDVP2}}(ε_n) - \psi_{\mathrm{exact}}(ε_n)\|",
         linestyle = :dash
     )
     plot!(
         cutoff_arr,
         diff_arr_mps_bug_true,
-        label = "MPS-BUG - True State",
+        label = L"\|\psi_{\mathrm{BUG}}(ε_n) - \psi_{\mathrm{exact}}(ε_n)\|",
         linestyle = :dash
     )
 end

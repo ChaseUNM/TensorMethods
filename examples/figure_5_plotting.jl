@@ -12,7 +12,7 @@ T = 5.0
 time_range = LinRange(t0, T, steps + 1)
 # range of system sizes (number of qubits)
 N_min = 3
-N_max = 100
+N_max = 5
 N_list = collect(N_min:N_max)
 
 # load precomputed runtimes and bond-dimension data for g = 0.5
@@ -77,14 +77,14 @@ t_plot = plot(
 
 # add fitted scaling lines for g = 0.0 (matching colors)
 plot!(N_list, C_tdvp_g_0*(N_list).^p_tdvp_g_0,
-    label = L"O\left(N^{1.32}\right)",
+    label = latexstring("O\\left(N^{", round(p_tdvp_g_0, digits=2), "}\\right)"),
     linestyle = :dash,
     alpha = 0.5,
     color = c_tdvp_g0
 )
 
 plot!(N_list, C_bug_g_0*(N_list).^p_bug_g_0,
-    label = L"O\left(N^{1.17}\right)",
+    label = latexstring("O\\left(N^{", round(p_bug_g_0, digits=2), "}\\right)"),
     linestyle = :dash,
     alpha = 0.5,
     color = c_bug_g0
@@ -102,14 +102,14 @@ plot!(N_list,
 )
 # add fitted scaling lines for g = 0.5 (matching colors)
 plot!(N_list, C_tdvp_g_half*(N_list).^p_tdvp_g_half,
-    label = L"O\left(N^{1.33}\right)",
+    label = latexstring("O\\left(N^{", round(p_tdvp_g_half, digits=2), "}\\right)"),
     linestyle = :dash,
     alpha = 0.5,
     color = c_tdvp_g05
 )
 
 plot!(N_list, C_bug_g_half*(N_list).^p_bug_g_half,
-    label = L"O\left(N^{1.88}\right)",
+    label = latexstring("O\\left(N^{", round(p_bug_g_half, digits=2), "}\\right)"),
     linestyle = :dash,
     alpha = 0.5,
     color = c_bug_g05

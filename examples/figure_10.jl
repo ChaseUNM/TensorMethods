@@ -70,7 +70,7 @@ T = 40.0
 # -------------------------------------------------------------------
 
 # Nearest-neighbor coupling strength [GHz] converted to angular frequency
-Jkl_coupling_strength = 5e-3 * 2pi
+Jkl_coupling_strength = 0.0 * 2pi
 
 # Coupling matrix for chain topology
 Jkl = zeros(nqubits, nqubits)
@@ -173,7 +173,7 @@ if BUG_Tucker == true
     # Construct Hamiltonian in operator/tensor form
     H_s_ops = H_sys_rot(nqubits, nlevels, freq01_all, rotfreq, self_kerr, Jkl, zz)
 
-    @time begin 
+    t = @elapsed begin 
         # Run BUG-Tucker time evolution
         ans_core, ans_factors, state_bug_tucker, energy_bug_tucker, link_bug_tucker =
             bug_integrator_mat_ra(
@@ -198,8 +198,8 @@ if BUG_Tucker == true
 
     # Compute fidelity with target state
     bug_tucker_fidelity = abs2(bug_tucker_vec' * target_vec)
-
-    println("BUG Tucker fidelity: $bug_tucker_fidelity")
+    println("BUG Tucker time: $t seconds")
+    println("BUG Tucker infidelity: $(1 - bug_tucker_fidelity)")
 end
 
 # -------------------------------------------------------------------
@@ -207,7 +207,7 @@ end
 # -------------------------------------------------------------------
 
 if TDVP == true 
-    @time begin 
+    t = @elapsed begin 
         # Run TDVP2 time evolution
         ans_tdvp, link_tdvp, magnet_tdvp, energy_tdvp, cutoff_error =
             tdvp2(
@@ -227,7 +227,8 @@ if TDVP == true
     # Compute fidelity with target state
     tdvp_fidelity = abs2(inner(conj(ans_tdvp), target_mps))
 
-    println("TDVP fidelity: $tdvp_fidelity")
+    println("TDVP time: $t seconds")
+    println("TDVP infidelity: $(1 - tdvp_fidelity)")
 end
 
 # -------------------------------------------------------------------
@@ -235,7 +236,7 @@ end
 # -------------------------------------------------------------------
 
 if BUG_MPS == true 
-    @time begin 
+    t = @elapsed begin 
         # Run BUG-MPS time evolution
         ans_bug_mps, link_bug_mps, magnet_bug_mps, energy_bug_mps =
             mps_bug(
@@ -253,8 +254,8 @@ if BUG_MPS == true
 
     # Compute fidelity with target state
     bug_mps_fidelity = abs2(inner(conj(ans_bug_mps), target_mps))
-
-    println("BUG MPS fidelity: $bug_mps_fidelity")
+    println("BUG MPS time: $t seconds")
+    println("BUG MPS infidelity: $(1 - bug_mps_fidelity)")
 end
 
 # -------------------------------------------------------------------

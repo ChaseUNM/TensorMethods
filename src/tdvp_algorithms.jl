@@ -572,7 +572,7 @@ end
 
 
 
-function tdvp2_constant(H::MPO, init::MPS, t0::Float64, T::Float64, steps::Int64; cutoff::Union{Float64, Nothing}=nothing, maxdim::Union{Int64, Nothing} = nothing, magnet::Bool = false, energy::Bool = false, verbose::Bool = false, normalize::Bool = false, strang::Bool = true)
+function tdvp2_constant(H::MPO, init::MPS, t0::Real, T::Real, steps::Int64; cutoff::Union{Float64, Nothing}=nothing, maxdim::Union{Int64, Nothing} = nothing, magnet::Bool = false, energy::Bool = false, verbose::Bool = false, normalize::Bool = false, strang::Bool = true)
     N = length(init)
     orthogonalize!(init, 1)
     # println("orthoCenter: ", orthoCenter(init))
@@ -695,7 +695,7 @@ function tdvp2_constant(H::MPO, init::MPS, t0::Float64, T::Float64, steps::Int64
     # , storage_arr
 end
 
-function tdvp2(H::MPO, init::MPS, t0::Float64, T::Float64, steps::Int64, bc_params::bcparams; cutoff::Union{Float64, Nothing}=nothing, maxdim::Union{Int64, Nothing} = nothing, magnet::Bool = false, energy::Bool = false, verbose::Bool = false, normalize::Bool = false, strang::Bool = true)
+function tdvp2(H::MPO, init::MPS, t0::Real, T::Real, steps::Int64, bc_params::bcparams; cutoff::Union{Float64, Nothing}=nothing, maxdim::Union{Int64, Nothing} = nothing, magnet::Bool = false, energy::Bool = false, verbose::Bool = false, normalize::Bool = false, strang::Bool = true)
     N = length(init)
     orthogonalize!(init, 1)
     # println("orthoCenter: ", orthoCenter(init))

@@ -7,8 +7,11 @@ using TensorMethods
 
 # Toggle which plots / methods to include
 plot_pulse = false
-plot_tdvp = true 
-plot_bug = true
+plot_tdvp = true
+
+# renamed original `plot_bug` to `plot_bug_tucker` and add `plot_bug_mps`
+plot_bug_tucker = false
+plot_bug_mps = true
 
 # -------------------------
 # System setup
@@ -145,14 +148,15 @@ tdvp_ans = vectorize_mps(ans_mps; order = "reverse")
 # Load Quandary reference data
 # -------------------------
 
-# Real part of reference state from Quandary
-rho_re = readdlm("../Rho_data/rho_Re.iinit0000_10_coupled.dat")
+# Real part of reference state from Quandary which is only the last time-step due to the full state trajectory being too large to save
+datafile = joinpath(@__DIR__, "quandary_data")
+rho_re = readdlm(joinpath(datafile, "quandary_re_coupled_$N.dat"))
 
 # Imaginary part of reference state from Quandary
-rho_im = readdlm("../Rho_data/rho_Im.iinit0000_10_coupled.dat")
+rho_im = readdlm(joinpath(datafile, "quandary_im_coupled_$N.dat"))
 
 # Construct final complex reference state from Quandary output
-quandary_ans = rho_re[end, 2:end] + im * rho_im[end, 2:end]
+quandary_ans = rho_re + im * rho_im
 
 # Compare TDVP solution to Quandary
 println("Error between quandary and tdvp: ", norm(tdvp_ans - quandary_ans))
@@ -165,7 +169,7 @@ println("bond dim at end: ", linkdims(ans_mps))
 # ============================================================
 
 # Number of cutoff values to test
-pts = 10
+pts = 20
 
 # Generate exponents from -35 to -3
 pts_range = LinRange(-35, -3, pts)
@@ -175,19 +179,23 @@ cutoff_list = 2.0 .^ pts_range
 
 # Error storage
 err_list_tdvp = zeros(pts)
-err_list_bug = zeros(pts)
+err_list_bug_tucker = zeros(pts)
+err_list_bug_mps = zeros(pts)
 
 # Bond dimension / rank history storage
 bd_list_tdvp = []
-bd_list_bug = []
+bd_list_bug_tucker = []
+bd_list_bug_mps = []
 
 # Store final solutions if desired
 ans_tdvp = []
-ans_bug = []
+ans_bug_tucker = []
+ans_bug_mps = []
 
 # CPU timing storage
 time_tdvp_cpu = zeros(pts)
-time_bug_cpu = zeros(pts)
+time_bug_tucker_cpu = zeros(pts)
+time_bug_mps_cpu = zeros(pts)
 
 # Reinitialize initial state
 q_state = fill(0, N)
@@ -209,16 +217,15 @@ for i in 1:pts
     # -------------------------
     if plot_tdvp == true 
         # Benchmark TDVP runtime
-        time_tdvp_cpu[i] = @belapsed begin 
+        time_tdvp_cpu[i] = @elapsed begin 
             ans_mps, link_history, _, _, _ = tdvp2(
                 H_s,
                 init_MPS,
                 t0,
                 T,
-                steps,
+                Int(steps/2),
                 bc_params;
-                cutoff = cutoff_list[i]^2,
-                strang = false
+                cutoff = cutoff_list[i]^2
             )
         end 
 
@@ -238,9 +245,9 @@ for i in 1:pts
     # -------------------------
     # BUG-Tucker
     # -------------------------
-    if plot_bug == true 
-        # Benchmark BUG runtime
-        time_bug_cpu[i] = @belapsed begin 
+    if plot_bug_tucker == true 
+        # Benchmark BUG runtime (Tucker variant)
+        time_bug_tucker_cpu[i] = @elapsed begin 
             ans_core, ans_factors, _, _, bd = bug_integrator_mat_ra(
                 H_s_ops,
                 bc_params,
@@ -254,7 +261,7 @@ for i in 1:pts
         end
 
         # Store final Tucker solution
-        push!(ans_bug, [ans_core, ans_factors])
+        push!(ans_bug_tucker, [ans_core, ans_factors])
 
         # Reconstruct dense tensor from Tucker form
         bug_array = Multi_TTM_recursive(ans_core, ans_factors)
@@ -263,10 +270,41 @@ for i in 1:pts
         bug_ans = vec(permutedims(bug_array, reverse(1:ndims(bug_array))))
 
         # Compute error relative to Quandary reference
-        err_list_bug[i] = norm(bug_ans - quandary_ans)
+        err_list_bug_tucker[i] = norm(bug_ans - quandary_ans)
 
         # Store Tucker rank history
-        push!(bd_list_bug, bd)
+        push!(bd_list_bug_tucker, bd)
+    end
+
+    # -------------------------
+    # BUG-MPS (mps_bug)
+    # -------------------------
+    if plot_bug_mps == true
+        # Benchmark BUG runtime (MPS variant)
+        time_bug_mps_cpu[i] = @elapsed begin 
+            # assumed mps_bug returns an MPS solution and bond history similar to tdvp2
+            ans_mps_bug, bd_mps, _, _ = mps_bug(
+                H_s,
+                bc_params, 
+                init_MPS,
+                t0,
+                T,
+                steps;
+                cutoff = cutoff_list[i]^2
+            )
+        end
+
+        # Store final MPS-BUG solution
+        push!(ans_bug_mps, ans_mps_bug)
+
+        # Convert MPS-BUG solution to full vector
+        bug_mps_vec = vectorize_mps(ans_mps_bug; order = "reverse")
+
+        # Compute error relative to Quandary reference
+        err_list_bug_mps[i] = norm(bug_mps_vec - quandary_ans)
+
+        # Store bond history for MPS-BUG
+        push!(bd_list_bug_mps, bd_mps)
     end
 end
 
@@ -274,22 +312,41 @@ end
 # Compute storage costs
 # ============================================================
 
-# Count final MPS storage cost
-entries_list_tdvp = [count_MPS(bd_list_tdvp[i][end, :], nlevels) for i in 1:pts]
+# Compute storage costs conditionally to avoid indexing empty lists
+if plot_tdvp
+    entries_list_tdvp = [count_MPS(bd_list_tdvp[i][end, :], nlevels) for i in 1:pts]
+else
+    entries_list_tdvp = Int[]  # empty placeholder
+end
 
-# Count final Tucker storage cost
-entries_list_bug = [count_tucker(bd_list_bug[i][end, :], nlevels) for i in 1:pts]
+if plot_bug_tucker
+    entries_list_bug_tucker = [count_tucker(bd_list_bug_tucker[i][end, :], nlevels) for i in 1:pts]
+else
+    entries_list_bug_tucker = Int[]
+end
+
+if plot_bug_mps
+    entries_list_bug_mps = [count_MPS(bd_list_bug_mps[i][end, :], nlevels) for i in 1:pts]
+else
+    entries_list_bug_mps = Int[]
+end
 
 # ============================================================
 # Plot error and storage results
 # ============================================================
 
-if plot_tdvp == true & plot_bug == true 
-    # Plot TDVP and BUG error vs cutoff
+# Build lists for error plotting depending on enabled methods
+error_traces = []
+labels_err = String[]
+if plot_tdvp; push!(error_traces, err_list_tdvp); push!(labels_err, "TDVP2 Err"); end
+if plot_bug_tucker; push!(error_traces, err_list_bug_tucker); push!(labels_err, "BUG Tucker Err"); end
+if plot_bug_mps; push!(error_traces, err_list_bug_mps); push!(labels_err, "BUG MPS Err"); end
+
+if !isempty(error_traces)
     cutoff_plot = plot(
         cutoff_list,
-        [err_list_tdvp, err_list_bug],
-        label = ["TDVP2 Err" "BUG Err"],
+        error_traces,
+        label = reshape(labels_err, 1, :),
         xscale = :log10,
         yscale = :log10,
         legend = :topleft,
@@ -298,70 +355,20 @@ if plot_tdvp == true & plot_bug == true
         xticks = [10^-16, 10^-15, 10^-14, 10^-13, 10^-12, 10^-11, 10^-10, 10^-9, 10^-8, 10^-7, 10^-6, 10^-5, 10^-4, 10^-3, 10^-2, 10^-1],
         xlabel = "SVD Truncation Parameter(ε)"
     )
+end
 
-    # Plot TDVP and BUG storage cost vs cutoff
+# Build lists for storage plotting depending on enabled methods
+storage_traces = []
+labels_store = String[]
+if plot_tdvp; push!(storage_traces, entries_list_tdvp); push!(labels_store, "MPS Storage (TDVP)"); end
+if plot_bug_tucker; push!(storage_traces, entries_list_bug_tucker); push!(labels_store, "Tucker Storage (BUG)"); end
+if plot_bug_mps; push!(storage_traces, entries_list_bug_mps); push!(labels_store, "MPS Storage (BUG-MPS)"); end
+
+if !isempty(storage_traces)
     entries_plot = plot(
         cutoff_list,
-        [entries_list_tdvp, entries_list_bug],
-        label = ["MPS Storage" "Tucker Tensor Storage"],
-        dpi = 250,
-        xticks = [10^-16, 10^-15, 10^-14, 10^-13, 10^-12, 10^-11, 10^-10, 10^-9, 10^-8, 10^-7, 10^-6, 10^-5, 10^-4, 10^-3, 10^-2, 10^-1],
-        xlabel = "SVD Truncation Parameter(ε)",
-        xscale = :log10
-    )
-
-    # Add dense vector storage reference line
-    plot!(cutoff_list, fill(2^N, pts), label = "Vector storage", linestyle = :dash)
-    
-elseif plot_tdvp == false 
-    # Plot BUG-only error
-    cutoff_plot_bug = plot(
-        cutoff_list,
-        err_list_bug,
-        label = "BUG Err",
-        xscale = :log10,
-        yscale = :log10,
-        legend = :topleft,
-        dpi = 250,
-        yticks = [10^-9, 10^-8, 10^-7, 10^-6, 10^-5, 10^-4, 10^-3, 10^-2, 10^-1],
-        xticks = [10^-16, 10^-15, 10^-14, 10^-13, 10^-12, 10^-11, 10^-10, 10^-9, 10^-8, 10^-7, 10^-6, 10^-5, 10^-4, 10^-3, 10^-2, 10^-1],
-        xlabel = "SVD Truncation Parameter(ε)"
-    )
-
-    # Plot TDVP storage only (note: this branch may not match intended logic)
-    entries_plot = plot(
-        cutoff_list,
-        entries_list_tdvp,
-        label = "Tensor-train storage",
-        dpi = 250,
-        xticks = [10^-16, 10^-15, 10^-14, 10^-13, 10^-12, 10^-11, 10^-10, 10^-9, 10^-8, 10^-7, 10^-6, 10^-5, 10^-4, 10^-3, 10^-2, 10^-1],
-        xlabel = "SVD Truncation Parameter(ε)",
-        xscale = :log10
-    )
-
-elseif plot_bug == false 
-    # Plot TDVP-only error
-    cutoff_plot_tdvp = plot(
-        cutoff_list,
-        err_list_tdvp,
-        label = "TDVP2 Err",
-        xscale = :log10,
-        yscale = :log10,
-        legend = :topleft,
-        dpi = 250,
-        yticks = [10^-9, 10^-8, 10^-7, 10^-6, 10^-5, 10^-4, 10^-3, 10^-2, 10^-1],
-        xticks = [10^-16, 10^-15, 10^-14, 10^-13, 10^-12, 10^-11, 10^-10, 10^-9, 10^-8, 10^-7, 10^-6, 10^-5, 10^-4, 10^-3, 10^-2, 10^-1],
-        xlabel = "SVD Truncation Parameter(ε)"
-    )
-
-    # Optional reference slope line
-    # plot!(cutoff_list, 10^3*cutoff_list.^1.06, label = L"O(\epsilon^{1.06})")
-
-    # Plot BUG/Tucker storage only
-    entries_plot = plot(
-        cutoff_list,
-        entries_list_bug,
-        label = "Tucker-tensor storage",
+        storage_traces,
+        label = labels_store,
         dpi = 250,
         xticks = [10^-16, 10^-15, 10^-14, 10^-13, 10^-12, 10^-11, 10^-10, 10^-9, 10^-8, 10^-7, 10^-6, 10^-5, 10^-4, 10^-3, 10^-2, 10^-1],
         xlabel = "SVD Truncation Parameter(ε)",
