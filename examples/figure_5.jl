@@ -14,7 +14,7 @@ steps = 500
 
 # Set the smallest and largest number of subsystems (qubits)
 N_min = 3
-N_max = 100
+N_max = 5
 
 # Create a list of system sizes to loop over
 N_list = collect(N_min:N_max)
@@ -38,7 +38,7 @@ p = 5
 eps = 10.0 ^ -p 
 
 # center = 1
-g = 0.0
+g = 0.5
 # For each qubit count n, evolve the system with tdvp2 and BUG
 # and measure the execution time
 for n in N_list 
@@ -70,7 +70,7 @@ for n in N_list
     end
 
     # Run TDVP2 again to collect the bond dimension history
-    _,bd_history_tdvp,_,_,_= tdvp2_constant(H, init_MPS_copy, t0, T, Int64(steps/2);cutoff = eps^2, verbose = true, strang = true)
+    _,bd_history_tdvp,_,_,_= tdvp2_constant(H, init_MPS_copy, t0, T, Int64(steps/2);cutoff = eps^2, verbose = false, strang = true)
     
     # Store the TDVP bond dimension history for this system size
     push!(bd_tdvp, bd_history_tdvp)
@@ -81,7 +81,7 @@ for n in N_list
     end
 
     # Run BUG again to collect the bond dimension history
-    _,bd_history_bug,_,_ = mps_bug_constant(H, init_MPS_copy, t0, T, steps; cutoff = eps^2, verbose = true)
+    _,bd_history_bug,_,_ = mps_bug_constant(H, init_MPS_copy, t0, T, steps; cutoff = eps^2, verbose = false)
 
     # Store the BUG bond dimension history for this system size
     push!(bd_bug, bd_history_bug)
@@ -99,14 +99,19 @@ for n in N_list
     
 end
 
-# Save BUG bond dimension histories to disk
-save_object("bd_bug_eps_minus_$(p)_$(steps)steps_g_$(g)_Nmin_$(N_min)_Nmax_$(N_max)_single_site_truncation_mo.jld2", bd_bug)
+save_data = true
 
-# Save TDVP bond dimension histories to disk
-save_object("bd_tdvp_eps_minus_$(p)_$(steps)steps_g_$(g)_Nmin_$(N_min)_Nmax_$(N_max).jld2", bd_tdvp)
+if save_data == true
+    # Save BUG bond dimension histories to disk
+    save_object("bd_bug_eps_minus_$(p)_$(steps)steps_g_$(g)_Nmin_$(N_min)_Nmax_$(N_max)_single_site_truncation_mo.jld2", bd_bug)
 
-# Save BUG runtimes to disk
-save_object("time_bug_eps_minus_$(p)_$(steps)steps_g_$(g)_Nmin_$(N_min)_Nmax_$(N_max)_single_site_truncation_mo.jld2", t_list_bug)
+    # Save TDVP bond dimension histories to disk
+    save_object("bd_tdvp_eps_minus_$(p)_$(steps)steps_g_$(g)_Nmin_$(N_min)_Nmax_$(N_max).jld2", bd_tdvp)
 
-# Save TDVP runtimes to disk
-save_object("time_tdvp_eps_minus_$(p)_$(steps)steps_g_$(g)_Nmin_$(N_min)_Nmax_$(N_max).jld2", t_list_tdvp)
+    # Save BUG runtimes to disk
+    save_object("time_bug_eps_minus_$(p)_$(steps)steps_g_$(g)_Nmin_$(N_min)_Nmax_$(N_max)_single_site_truncation_mo.jld2", t_list_bug)
+
+    # Save TDVP runtimes to disk
+    save_object("time_tdvp_eps_minus_$(p)_$(steps)steps_g_$(g)_Nmin_$(N_min)_Nmax_$(N_max).jld2", t_list_tdvp)
+end
+

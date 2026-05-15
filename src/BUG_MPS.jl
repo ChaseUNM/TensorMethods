@@ -179,7 +179,7 @@ function orthogonalize_left_to_right!(M::MPS, start_site::Int64, end_site::Int64
 
 end
 
-function TDVP1_style_truncation_move_orthogonal(M::MPS, center::Int64; cutoff::Float64 = 1E-10)
+function TDVP1_style_truncation_move_orthogonal(M::MPS, center::Int64; cutoff::Float64 = 1E-10, maxdim::Union{Nothing, Int64} = nothing)
     orthogonalize_right_to_left!(M, center, 1)
     M_trunc = deepcopy(M)
     N = length(M)
@@ -196,7 +196,7 @@ function TDVP1_style_truncation_move_orthogonal(M::MPS, center::Int64; cutoff::F
             row_inds[1] = left_idx 
             row_inds[2] = site_idx
         end
-        U, S, V, spectrum = svd(M_trunc[i], row_inds; cutoff = cutoff, lefttags = "Link, l = $(i)")
+        U, S, V, spectrum = svd(M_trunc[i], row_inds; cutoff = cutoff, lefttags = "Link, l = $(i)", maxdim = maxdim)
         # println("U inds", inds(U))
         # println("S inds: ", inds(S))
         # println("V inds: ", inds(V))
@@ -533,7 +533,7 @@ function mps_bug_step(H_mpo, M, h, center)
     return updated_MPS 
 end
 
-function mps_bug_constant(H, M, t0, T, steps ; center::Union{Nothing,Int64} = nothing, cutoff::Union{Nothing,Float64} = nothing, maxdim::Union{Nothing,Int64} = nothing, magnet::Bool = false, energy::Bool = false, verbose::Bool = false)
+function mps_bug_constant(H::MPO, M::MPS, t0::Real, T::Real, steps::Int64; center::Union{Nothing,Int64} = nothing, cutoff::Union{Nothing,Float64} = nothing, maxdim::Union{Nothing,Int64} = nothing, magnet::Bool = false, energy::Bool = false, verbose::Bool = false)
     h = (T - t0)/steps 
     M_copy = deepcopy(M)
     N = length(M)
@@ -559,11 +559,11 @@ function mps_bug_constant(H, M, t0, T, steps ; center::Union{Nothing,Int64} = no
         # display(M_copy)
         if cutoff != nothing
             # M_copy = TDVP2_style_truncation(M_copy, center; cutoff = cutoff)
-            M_copy = TDVP1_style_truncation_move_orthogonal(M_copy, center; cutoff = cutoff)
+            M_copy = TDVP1_style_truncation_move_orthogonal(M_copy, center; cutoff = cutoff, maxdim = maxdim)
             # truncate!(M_copy; cutoff = cutoff)
         else
             # M_copy = TDVP2_style_truncation(M_copy, center; cutoff = 1E-15)
-            M_copy = TDVP1_style_truncation_move_orthogonal(M_copy, center; cutoff = 1E-15)
+            M_copy = TDVP1_style_truncation_move_orthogonal(M_copy, center; cutoff = 1E-15, maxdim = maxdim)
             # truncate!(M_copy; cutoff = 1E-15)
         end
         # display(M_copy)
@@ -587,7 +587,7 @@ function mps_bug_constant(H, M, t0, T, steps ; center::Union{Nothing,Int64} = no
     return M_copy, link_dim, magnet_history, energy_history
 end
 
-function mps_bug(H::MPO, bc_params::bcparams, M::MPS, t0::Float64, T::Float64, steps::Int64; center::Union{Nothing, Int64} = nothing, cutoff::Union{Nothing, Float64}=nothing, maxdim::Union{Nothing, Float64}=nothing, magnet::Bool=false, energy::Bool=false)
+function mps_bug(H::MPO, bc_params::bcparams, M::MPS, t0::Real, T::Real, steps::Int64; center::Union{Nothing, Int64} = nothing, cutoff::Union{Nothing, Float64}=nothing, maxdim::Union{Nothing, Float64}=nothing, magnet::Bool=false, energy::Bool=false, verbose::Bool=false)
     h = (T - t0)/steps 
     M_copy = deepcopy(M)
     N = length(M)
@@ -611,11 +611,11 @@ function mps_bug(H::MPO, bc_params::bcparams, M::MPS, t0::Float64, T::Float64, s
         t0 += h
         if cutoff != nothing
             # truncate!(M_copy; cutoff = cutoff)
-            M_copy = TDVP1_style_truncation_move_orthogonal(M_copy, center; cutoff = cutoff)
+            M_copy = TDVP1_style_truncation_move_orthogonal(M_copy, center; cutoff = cutoff, maxdim = maxdim)
         end
         if maxdim != nothing 
             # truncate!(M_copy; maxdim = maxdim)
-            M_copy = TDVP1_style_truncation_move_orthogonal(M_copy, center; cutoff = 1E-15)
+            M_copy = TDVP1_style_truncation_move_orthogonal(M_copy, center; cutoff = 1E-15, maxdim = maxdim)
         end
         link_dim[i + 1, :] = linkdims(M_copy)
         if magnet == true 
@@ -625,6 +625,10 @@ function mps_bug(H::MPO, bc_params::bcparams, M::MPS, t0::Float64, T::Float64, s
             energy_history[i + 1] = real(inner(M_copy', H, M_copy))
         end
         link_dim[i + 1,:] = linkdims(M_copy)
+        if verbose == true 
+            println("Step $i")
+            println("Bond Dimensions: ", linkdims(M_copy))
+        end
     end
     return M_copy, link_dim, magnet_history, energy_history
 end

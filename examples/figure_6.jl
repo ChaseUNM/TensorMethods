@@ -17,7 +17,7 @@ using TensorMethods
 # -------------------------
 # Toggle which methods to run
 # -------------------------
-run_tdvp = false
+run_tdvp = true
 run_bug_tucker = false
 run_bug_mps = true
 
@@ -26,7 +26,7 @@ run_bug_mps = true
 # -------------------------
 
 # Number of qubits
-N = 15
+N = 10
 
 # Create qubit site indices and local dimensions
 sites = siteinds("Qubit", N)
