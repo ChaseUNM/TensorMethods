@@ -571,7 +571,65 @@ function tdvp_constant_adjoint(H, init, t0, T, steps, verbose = false)
 end
 
 
+"""
+tdvp2_constant(H::MPO, init::MPS, t0::Real, T::Real, steps::Int64;
+               cutoff::Union{Float64,Nothing}=nothing,
+               maxdim::Union{Int64,Nothing}=nothing,
+               magnet::Bool=false,
+               energy::Bool=false,
+               verbose::Bool=false,
+               normalize::Bool=false,
+               strang::Bool=true)
 
+Perform two-site TDVP time evolution with a constant time-step.
+
+Arguments
+- H::MPO
+  Hamiltonian (MPO) driving the evolution. Must be compatible with `init` (same sites/ordering).
+
+- init::MPS
+  Initial matrix product state to be evolved.
+
+- t0::Real
+  Initial time.
+
+- T::Real
+  Final time.
+
+- steps::Int64
+  Number of equal time steps between `t0` and `T` (dt = (T - t0) / steps).
+
+Keyword arguments
+- cutoff::Union{Float64,Nothing} = nothing
+  Truncation tolerance for SVD. If `nothing`, no explicit cutoff is applied (implementation-dependent default).
+  Typical call sites may pass a squared tolerance; follow the convention used by the implementation.
+
+- maxdim::Union{Int64,Nothing} = nothing
+  Maximum allowed bond dimension during truncation. If `nothing`, no explicit cap beyond algorithmic limits.
+
+- magnet::Bool = false
+  If true, compute and return local magnetization history during the evolution.
+
+- energy::Bool = false
+  If true, compute and return energy expectation values during the evolution.
+
+- verbose::Bool = false
+  If true, emit progress and diagnostic information.
+
+- normalize::Bool = false
+  If true, re-normalize the MPS at appropriate steps to control norm drift.
+
+- strang::Bool = true
+  If true, use Strang (symmetric) splitting ordering for two-site updates; otherwise use a non-symmetric (Lie-Trotter) ordering.
+
+Returns
+A tuple typically containing:
+- evolved MPS at final time,
+- bond-dimension history,
+- magnetization history (if requested),
+- energy history (if requested),
+- truncation error(s) or other diagnostics.
+"""
 function tdvp2_constant(H::MPO, init::MPS, t0::Real, T::Real, steps::Int64; cutoff::Union{Float64, Nothing}=nothing, maxdim::Union{Int64, Nothing} = nothing, magnet::Bool = false, energy::Bool = false, verbose::Bool = false, normalize::Bool = false, strang::Bool = true)
     N = length(init)
     orthogonalize!(init, 1)
@@ -695,6 +753,70 @@ function tdvp2_constant(H::MPO, init::MPS, t0::Real, T::Real, steps::Int64; cuto
     # , storage_arr
 end
 
+
+"""
+tdvp2_constant(H::MPO, init::MPS, t0::Real, T::Real, steps::Int64, bc_params::bcparams;
+               cutoff::Union{Float64,Nothing}=nothing,
+               maxdim::Union{Int64,Nothing}=nothing,
+               magnet::Bool=false,
+               energy::Bool=false,
+               verbose::Bool=false,
+               normalize::Bool=false,
+               strang::Bool=true)
+
+Evolve an MPS under a Hamiltonian MPO using a two-site TDVP integrator.
+
+Performs time evolution of the matrix product state `init` under the Hamiltonian `H`
+from time `t0` to `T` using `steps` discrete time steps. The integrator works on
+two-site updates and supports optional SVD truncation and bond-dimension control.
+A symmetric second-order (Strang) splitting is used by default.
+
+Arguments
+- H::MPO
+    The Hamiltonian as an MPO that generates the time evolution (may be time-independent).
+- init::MPS
+    The initial MPS to be evolved. This state is modified or copied depending on implementation.
+- t0::Real
+    Initial time of the evolution.
+- T::Real
+    Final time of the evolution.
+- steps::Int64
+    Number of time steps. The step size used is dt = (T - t0) / steps.
+- bc_params::bcparams
+    Boundary-condition parameters (type depends on implementation) controlling edge terms/closures.
+
+Keyword arguments
+- cutoff::Union{Float64, Nothing}=nothing
+    SVD truncation tolerance: singular values smaller than `cutoff` are discarded.
+    If `nothing`, no truncation by tolerance is performed.
+- maxdim::Union{Int64, Nothing}=nothing
+    Maximum allowed bond dimension during truncation. If `nothing`, bond dimensions are
+    not explicitly limited (only controlled by `cutoff`).
+- magnet::Bool=false
+    If true, compute and record site magnetizations (or a user-defined local observable)
+    at each saved time point.
+- energy::Bool=false
+    If true, compute and record the energy ⟨H⟩ at each saved time point.
+- verbose::Bool=false
+    Print progress and diagnostic information during the evolution.
+- normalize::Bool=false
+    If true, renormalize the MPS (to unit norm) after each time step/update.
+- strang::Bool=true
+    Use Strang (second-order symmetric) splitting for the integrator when true.
+    If false, a first-order integrator is used.
+
+Returns
+A tuple typically containing:
+- evolved MPS at final time,
+- bond-dimension history,
+- magnetization history (if requested),
+- energy history (if requested),
+- truncation error(s) or other diagnostics.
+
+- verbose::Bool = false
+  If true, print progress information and diagnostics during the time evolution to assist with monitoring and debugging.
+
+"""
 function tdvp2(H::MPO, init::MPS, t0::Real, T::Real, steps::Int64, bc_params::bcparams; cutoff::Union{Float64, Nothing}=nothing, maxdim::Union{Int64, Nothing} = nothing, magnet::Bool = false, energy::Bool = false, verbose::Bool = false, normalize::Bool = false, strang::Bool = true)
     N = length(init)
     orthogonalize!(init, 1)
