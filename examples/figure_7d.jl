@@ -100,10 +100,11 @@ for i in 1:length(cutoff_arr)
         init_MPS,
         t0,
         T,
-        Int(steps/2);
+        Int(steps);
         cutoff = svd_cutoff_squared,
         magnet = true,
-        verbose = false
+        verbose = false, 
+        strange = false
     )
 
     # Run BUG MPS evolution and record:

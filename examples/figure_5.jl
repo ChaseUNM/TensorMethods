@@ -14,7 +14,7 @@ steps = 500
 
 # Set the smallest and largest number of subsystems (qubits)
 N_min = 3
-N_max = 5
+N_max = 100
 
 # Create a list of system sizes to loop over
 N_list = collect(N_min:N_max)
@@ -38,7 +38,7 @@ p = 5
 eps = 10.0 ^ -p 
 
 # center = 1
-g = 0.5
+g = 0.0
 # For each qubit count n, evolve the system with tdvp2 and BUG
 # and measure the execution time
 for n in N_list 

@@ -4,7 +4,12 @@ using TensorMethods
 
 
 ####################################################################################
-# Generate data for Figure 6 (arxiv 2603.13990)
+# Generate data for Figure 6 (arxiv 2603.13990) (run for two different cases g = 0.0, g = 0.5)
+
+# separate the repositories into a source code and an examples folder
+
+# 
+
 ####################################################################################
 
 
@@ -234,6 +239,8 @@ end
 # ============================================================
 # Individual method plots
 # ============================================================
+
+# add println("plot is in this variable")
 
 if run_tdvp
     entries_plot_tdvp = plot(

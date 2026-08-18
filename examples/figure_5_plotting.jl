@@ -12,28 +12,30 @@ T = 5.0
 time_range = LinRange(t0, T, steps + 1)
 # range of system sizes (number of qubits)
 N_min = 3
-N_max = 5
-N_list = collect(N_min:N_max)
+N_max = 100
+offset = 2
+N_list = collect(N_min: N_max)
+N_list_time = collect(N_min + offset:N_max)
 
 # load precomputed runtimes and bond-dimension data for g = 0.5
 g = 0.5
-time_tdvp_g_half = load_object("time_tdvp_eps_minus_$(p)_$(steps)steps_g_$(g)_Nmin_$(N_min)_Nmax_$(N_max).jld2")
-time_bug_g_half = load_object("time_bug_eps_minus_$(p)_$(steps)steps_g_$(g)_Nmin_$(N_min)_Nmax_$(N_max)_single_site_truncation_mo.jld2")
+time_tdvp_g_half = load_object("time_tdvp_eps_minus_$(p)_$(steps)steps_g_$(g)_Nmin_$(N_min)_Nmax_$(N_max).jld2")[1 + offset:end]
+time_bug_g_half = load_object("time_bug_eps_minus_$(p)_$(steps)steps_g_$(g)_Nmin_$(N_min)_Nmax_$(N_max)_single_site_truncation_mo.jld2")[1 + offset:end]
 bd_tdvp_g_half = load_object("bd_tdvp_eps_minus_$(p)_$(steps)steps_g_$(g)_Nmin_$(N_min)_Nmax_$(N_max).jld2")
 bd_bug_g_half = load_object("bd_bug_eps_minus_$(p)_$(steps)steps_g_$(g)_Nmin_$(N_min)_Nmax_$(N_max)_single_site_truncation_mo.jld2")
 
 # load precomputed runtimes and bond-dimension data for g = 0.0
 g = 0.0
-time_tdvp_g_0 = load_object("time_tdvp_eps_minus_$(p)_$(steps)steps_g_$(g)_Nmin_$(N_min)_Nmax_$(N_max).jld2")
-time_bug_g_0 = load_object("time_bug_eps_minus_$(p)_$(steps)steps_g_$(g)_Nmin_$(N_min)_Nmax_$(N_max)_single_site_truncation_mo.jld2")
+time_tdvp_g_0 = load_object("time_tdvp_eps_minus_$(p)_$(steps)steps_g_$(g)_Nmin_$(N_min)_Nmax_$(N_max).jld2")[1 + offset:end]
+time_bug_g_0 = load_object("time_bug_eps_minus_$(p)_$(steps)steps_g_$(g)_Nmin_$(N_min)_Nmax_$(N_max)_single_site_truncation_mo.jld2")[1 + offset:end]
 bd_tdvp_g_0 = load_object("bd_tdvp_eps_minus_$(p)_$(steps)steps_g_$(g)_Nmin_$(N_min)_Nmax_$(N_max).jld2")
 bd_bug_g_0 = load_object("bd_bug_eps_minus_$(p)_$(steps)steps_g_$(g)_Nmin_$(N_min)_Nmax_$(N_max)_single_site_truncation_mo.jld2")
 
 # Fit power-law scaling of runtime ~ C * N^p by linearizing with logs:
 # log(time) ≈ beta[1]*log(N) + beta[2]
-X = [log.(N_list) ones(length(N_list))]
+X = [log.(N_list_time) ones(length(N_list_time))]
 # for the "bug" data length may differ; construct design matrix accordingly
-X_bug = [log.(N_list) ones(length(time_bug_g_half))]
+X_bug = [log.(N_list_time) ones(length(time_bug_g_half))]
 beta_tdvp_g_half = X \ log.(time_tdvp_g_half)
 beta_bug_g_half = X_bug \ log.(time_bug_g_half)
 beta_tdvp_g_0 = X \ log.(time_tdvp_g_0)
@@ -63,7 +65,7 @@ c_bug_g05  = cols[4]
 
 # Main runtime plot: TDVP2 and MPS-BUG for g = 0.0 (plotted together)
 t_plot = plot(
-    N_list,
+    N_list_time,
     [time_tdvp_g_0 time_bug_g_0],
     xlabel = "# of qubits (N)",
     labels = ["TDVP2 | g = 0.0" "MPS-BUG | g = 0.0"],
@@ -76,14 +78,14 @@ t_plot = plot(
 )
 
 # add fitted scaling lines for g = 0.0 (matching colors)
-plot!(N_list, C_tdvp_g_0*(N_list).^p_tdvp_g_0,
+plot!(N_list_time, C_tdvp_g_0*(N_list_time).^p_tdvp_g_0,
     label = latexstring("O\\left(N^{", round(p_tdvp_g_0, digits=2), "}\\right)"),
     linestyle = :dash,
     alpha = 0.5,
     color = c_tdvp_g0
 )
 
-plot!(N_list, C_bug_g_0*(N_list).^p_bug_g_0,
+plot!(N_list_time, C_bug_g_0*(N_list_time).^p_bug_g_0,
     label = latexstring("O\\left(N^{", round(p_bug_g_0, digits=2), "}\\right)"),
     linestyle = :dash,
     alpha = 0.5,
@@ -91,24 +93,24 @@ plot!(N_list, C_bug_g_0*(N_list).^p_bug_g_0,
 )
 
 # add g = 0.5 data curves to the same plot
-plot!(N_list,
+plot!(N_list_time,
     time_tdvp_g_half,
     label = "TDVP2 | g = 0.5",
     color = [c_tdvp_g05 c_bug_g05]
 )
-plot!(N_list, 
+plot!(N_list_time, 
     time_bug_g_half, label = "MPS-BUG | g = 0.5", 
     color = [c_bug_g05]
 )
 # add fitted scaling lines for g = 0.5 (matching colors)
-plot!(N_list, C_tdvp_g_half*(N_list).^p_tdvp_g_half,
+plot!(N_list_time, C_tdvp_g_half*(N_list_time).^p_tdvp_g_half,
     label = latexstring("O\\left(N^{", round(p_tdvp_g_half, digits=2), "}\\right)"),
     linestyle = :dash,
     alpha = 0.5,
     color = c_tdvp_g05
 )
 
-plot!(N_list, C_bug_g_half*(N_list).^p_bug_g_half,
+plot!(N_list_time, C_bug_g_half*(N_list_time).^p_bug_g_half,
     label = latexstring("O\\left(N^{", round(p_bug_g_half, digits=2), "}\\right)"),
     linestyle = :dash,
     alpha = 0.5,
