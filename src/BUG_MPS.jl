@@ -187,7 +187,7 @@ end
 
 # TDVP-like truncation that first moves orthogonality to the given center (in-place),
 # then performs left-to-center SVDs and right-to-center SVDs. Optionally enforces maxdim.
-function TDVP1_style_truncation_move_orthogonal(M::MPS, center::Int64; cutoff::Float64 = 1E-10, maxdim::Union{Nothing, Int64} = nothing)
+function TDVP1_style_truncation_in_move_orthogonal(M::MPS, center::Int64; cutoff::Float64 = 1E-10, maxdim::Union{Nothing, Int64} = nothing)
     orthogonalize_right_to_left!(M, center, 1)
     M_trunc = deepcopy(M)
     N = length(M)
@@ -203,6 +203,7 @@ function TDVP1_style_truncation_move_orthogonal(M::MPS, center::Int64; cutoff::F
             row_inds[2] = site_idx
         end
         U, S, V, spectrum = svd(M_trunc[i], row_inds; cutoff = cutoff, lefttags = "Link, l = $(i)", maxdim = maxdim)
+
         M_trunc[i] = U 
         M_trunc[i + 1] = M_trunc[i + 1]*S*V
     end
@@ -217,10 +218,41 @@ function TDVP1_style_truncation_move_orthogonal(M::MPS, center::Int64; cutoff::F
             row_inds[1] = left_idx
         end
         U, S, V, spectrum = svd(M_trunc[i], row_inds; cutoff = cutoff, righttags = "Link, l = $(i-1)", maxdim = maxdim)
+
         M_trunc[i] = V 
         M_trunc[i-1] = M_trunc[i - 1]*U*S 
     
     end
+
+    return M_trunc 
+end
+
+### Make new truncation code, going from the orthogonality center to the ends of the MPS. 
+function TDVP1_style_truncation_out_move_orthogonal(M::MPS, center::Int64; cutoff::Float64 = 1E-10, maxdim::Union{Nothing, Int64} = nothing)
+    # orthogonalize_right_to_left!(M, center, 1)
+    M_trunc = deepcopy(M)
+    N = length(M)
+    for i in center:N-1
+        site_idx, left_idx, right_idx = get_site_and_links(M_trunc[i])
+        row_inds = Vector{Index}(undef, 2)
+        row_inds[1] = left_idx 
+        row_inds[2] = site_idx
+        U, S, V, spectrum = svd(M_trunc[i], row_inds; cutoff = cutoff, lefttags = "Link, l = $(i)", maxdim = maxdim)
+
+        M_trunc[i] = U 
+        M_trunc[i + 1] = S*V*M_trunc[i + 1]
+    end
+    orthogonalize_right_to_left!(M_trunc, N, center)
+    for i in center:-1:2
+        site_idx, left_idx, right_idx = get_site_and_links(M_trunc[i])
+        row_inds = Vector{Index}(undef, 1)
+        row_inds[1] = left_idx 
+        U, S, V, spectrum = svd(M_trunc[i], row_inds; cutoff = cutoff, righttags = "Link, l = $(i - 1)", maxdim = maxdim)
+
+        M_trunc[i] = V 
+        M_trunc[i - 1] = M_trunc[i - 1]*U*S 
+    end
+    orthogonalize_left_to_right!(M_trunc, 1, center)
 
     return M_trunc 
 end
@@ -584,9 +616,9 @@ function mps_bug_constant(H::MPO, M::MPS, t0::Real, T::Real, steps::Int64; cente
         M_copy = mps_bug_step(H, M_copy, h, center)
         # Apply truncation policy if requested
         if cutoff != nothing
-            M_copy = TDVP1_style_truncation_move_orthogonal(M_copy, center; cutoff = cutoff, maxdim = maxdim)
+            M_copy = TDVP1_style_truncation_in_move_orthogonal(M_copy, center; cutoff = cutoff, maxdim = maxdim)
         else
-            M_copy = TDVP1_style_truncation_move_orthogonal(M_copy, center; cutoff = 1E-15, maxdim = maxdim)
+            M_copy = TDVP1_style_truncation_in_move_orthogonal(M_copy, center; cutoff = 1E-15, maxdim = maxdim)
         end
         link_dim[i + 1, :] = linkdims(M_copy)
         
@@ -687,10 +719,10 @@ function mps_bug(H::MPO, bc_params::bcparams, M::MPS, t0::Real, T::Real, steps::
         t0 += h
         # Optionally apply truncation policies
         if cutoff != nothing
-            M_copy = TDVP1_style_truncation_move_orthogonal(M_copy, center; cutoff = cutoff, maxdim = maxdim)
+            M_copy = TDVP1_style_truncation_out_move_orthogonal(M_copy, center; cutoff = cutoff, maxdim = maxdim)
         end
         if maxdim != nothing 
-            M_copy = TDVP1_style_truncation_move_orthogonal(M_copy, center; cutoff = 1E-15, maxdim = maxdim)
+            M_copy = TDVP1_style_truncation_out_move_orthogonal(M_copy, center; cutoff = 1E-15, maxdim = maxdim)
         end
         link_dim[i + 1, :] = linkdims(M_copy)
         if magnet == true 

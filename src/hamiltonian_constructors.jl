@@ -5,6 +5,98 @@ using SparseArrays
 # include("vectorization(5-5).jl")
 
 
+mutable struct Drift_Hamiltonian
+    N::Int64
+    sites::Vector{Index{Int64}}
+    transition_freq::AbstractArray
+    rot_freq::Union{AbstractArray, Nothing}
+    self_kerr::Union{AbstractArray, Nothing}
+    zz::Union{AbstractArray, Nothing}
+    dipole::Union{AbstractArray, Nothing}
+    bond_dict::Union{Nothing, Dict{Any, Any}}
+
+    function Drift_Hamiltonian(
+        N::Int64,
+        sites::Vector{Index{Int64}},
+        transition_freq::AbstractArray,
+        rot_freq::Union{AbstractArray, Nothing};
+        self_kerr::Union{AbstractArray, Nothing}=nothing,
+        zz::Union{AbstractArray, Nothing}=nothing,
+        dipole::Union{AbstractArray, Nothing}=nothing,
+        bond_dict::Union{Nothing, Dict{Any, Any}} = nothing
+    )
+        new(
+            N,
+            sites,
+            transition_freq,
+            rot_freq,
+            self_kerr,
+            zz,
+            dipole,
+            bond_dict
+        )
+    end
+end
+
+function make_couplings_QEC(n_groups::Int; data_qubit_idx::Union{Nothing, Vector{Int}} = nothing, ancilla_qubit_idx::Union{Nothing, Vector{Int}} = nothing, group_size::Int=5)
+    
+    if isnothing(data_qubit_idx)
+        data_qubit_idx = [1,2,3]
+    end
+    if isnothing(ancilla_qubit_idx)
+        ancilla_qubit_idx = [4,5]
+    end
+    base = sort.([
+    (data_qubit_idx[1], ancilla_qubit_idx[1]),
+    (data_qubit_idx[2], ancilla_qubit_idx[1]),
+    (data_qubit_idx[2], ancilla_qubit_idx[2]),
+    (data_qubit_idx[3], ancilla_qubit_idx[2])
+])
+    reduce(vcat, (map(t -> t .+ g*group_size, base) for g in 0:n_groups-1))
+end
+
+function initial_states(n, n_ess)
+    """
+    Returns the columns of the prod(n) × prod(n) identity matrix
+    corresponding to states |i₁, ..., i_d> for which
+    i_k <= n_ess[k].
+    """
+    d = length(n)
+
+    # Truncated identity operators
+    Id = [Matrix{Float64}(I, n[k], n_ess[k]) for k in 1:d]
+
+    # Id[1] ⊗ Id[2] ⊗ ... ⊗ Id[d]
+    return reduce(kron, Id)
+end
+
+
+function create_CNOT(n, n_ess, which_qudits)
+    i = which_qudits[1]
+    j = which_qudits[2]
+
+    d = length(n)
+
+    # Full identity operators for each subsystem
+    op = [Matrix{Float64}(I, n[k], n[k]) for k in 1:d]
+
+    # Full N × N identity
+    CNOT_full = reduce(kron, op)
+
+    # |1><1| on control qudit
+    op[i] = zeros(n[i], n[i])
+    op[i][2, 2] = 1.0
+
+    # X - I on target qudit
+    op[j] = [-1.0 1.0;
+              1.0 -1.0]
+
+    # Add |1><1| ⊗ (X - I)
+    CNOT_full += reduce(kron, op)
+
+    # Apply to the truncated set of initial states
+    return CNOT_full * initial_states(n, n_ess)
+end
 
 # Create different operators for use in ITensor opsum operation
 ITensors.op(::OpName"Sx2", ::SiteType"Qubit") = [0 1; 1 0]
@@ -460,10 +552,13 @@ function s_op_sparse(op, j, N)
     end
 end
 
-function qudit_siteinds(N::Int64, N_levels::Vector{Int64})
+function qudit_siteinds(N::Int64, N_levels::Vector{Int64}; tag_set::Union{Vector{Int}, Nothing} = nothing)
     ind = Vector{Index{Int64}}(undef, N)
+    if isnothing(tag_set)
+        tag_set = collect(1:N)
+    end
     for i in 1:N 
-        ind[i] = Index(N_levels[i]; tags = "Qudit, Site, n = $i")
+        ind[i] = Index(N_levels[i]; tags = "Qudit, Site, n = $(tag_set[i])")
     end
     return ind 
 end
@@ -647,44 +742,44 @@ function piecewise_H_no_rot(step, f, ground_freq, cross_kerr, dipole, N)
     return H 
 end
 
-# function H_sys(ground_freq, rot_freq, self_kerr, cross_kerr, dipole, N, d)
-#     H = zeros(ComplexF64, (d^N, d^N))
-#     a = Array(Bidiagonal(zeros(d), sqrt.(collect(1: d - 1)), :U))
-#     for i = 1:N 
-#         H .+= (ground_freq[i] - rot_freq[i])*s_op_general(a'*a, i, N, d)
-#         H .-= 0.5*self_kerr[i]*s_op_general(a'*a'*a*a, i, N, d)
-#         if i != N 
-#             for j = i + 1: N
-#                 #zz-coupling interaction
-#                 H .-= cross_kerr[i,j]*s_op_general(a'*a, i, N, d)*s_op_general(a'*a, j, N, d)
-#                 #dipole-dipole interaction
-#                 H .+= dipole[i,j]*s_op_general(a', i, N, d)*s_op_general(a, j, N, d)
-#                 H .+= dipole[i,j]*s_op_general(a, i, N, d)*s_op_general(a', j, N, d)
-#             end
-#         end
-#     end
-#     return H 
-# end
-
-function H_sys(N::Int64, d::Vector{Int64}, ground_freq::Vector{Float64}, rot_freq::Vector{Float64}, self_kerr::Vector{Float64}, dipole::AbstractMatrix, cross_kerr::AbstractMatrix)
-    H = zeros(ComplexF64, (prod(d), prod(d)))
-    
-    for i = 1:N
-        a = Array(Bidiagonal(zeros(d[i]), sqrt.(collect(1: d[i] - 1)), :U))
-        H .+= (ground_freq[i] - rot_freq[i])*s_op_general_reverse(a'*a, i, N, d[i])
-        H .-= 0.5*self_kerr[i]*s_op_general_reverse(a'*a'*a*a, i, N, d[i])
+function H_sys(ground_freq, rot_freq, self_kerr, cross_kerr, dipole, N, d)
+    H = zeros(ComplexF64, (d^N, d^N))
+    a = Array(Bidiagonal(zeros(d), sqrt.(collect(1: d - 1)), :U))
+    for i = 1:N 
+        H .+= (ground_freq[i] - rot_freq[i])*s_op_general(a'*a, i, N, d)
+        H .-= 0.5*self_kerr[i]*s_op_general(a'*a'*a*a, i, N, d)
         if i != N 
             for j = i + 1: N
                 #zz-coupling interaction
-                H .-= cross_kerr[i,j]*s_op_general_reverse(a'*a, i, N, d[i])*s_op_general_reverse(a'*a, j, N, d[j])
+                H .-= cross_kerr[i,j]*s_op_general(a'*a, i, N, d)*s_op_general(a'*a, j, N, d)
                 #dipole-dipole interaction
-                H .+= dipole[i,j]*s_op_general_reverse(a', i, N, d[i])*s_op_general_reverse(a, j, N, d[j])
-                H .+= dipole[i,j]*s_op_general_reverse(a, i, N, d[i])*s_op_general_reverse(a', j, N, d[j])
+                H .+= dipole[i,j]*s_op_general(a', i, N, d)*s_op_general(a, j, N, d)
+                H .+= dipole[i,j]*s_op_general(a, i, N, d)*s_op_general(a', j, N, d)
             end
         end
     end
     return H 
 end
+
+# function H_sys(N::Int64, d::Vector{Int64}, ground_freq::Vector{Float64}, rot_freq::Vector{Float64}, self_kerr::Vector{Float64}, dipole::AbstractMatrix, cross_kerr::AbstractMatrix)
+#     H = zeros(ComplexF64, (prod(d), prod(d)))
+    
+#     for i = 1:N
+#         a = Array(Bidiagonal(zeros(d[i]), sqrt.(collect(1: d[i] - 1)), :U))
+#         H .+= (ground_freq[i] - rot_freq[i])*s_op_general_reverse(a'*a, i, N, d[i])
+#         H .-= 0.5*self_kerr[i]*s_op_general_reverse(a'*a'*a*a, i, N, d[i])
+#         if i != N 
+#             for j = i + 1: N
+#                 #zz-coupling interaction
+#                 H .-= cross_kerr[i,j]*s_op_general_reverse(a'*a, i, N, d[i])*s_op_general_reverse(a'*a, j, N, d[j])
+#                 #dipole-dipole interaction
+#                 H .+= dipole[i,j]*s_op_general_reverse(a', i, N, d[i])*s_op_general_reverse(a, j, N, d[j])
+#                 H .+= dipole[i,j]*s_op_general_reverse(a, i, N, d[i])*s_op_general_reverse(a', j, N, d[j])
+#             end
+#         end
+#     end
+#     return H 
+# end
 
 function H_ctrl(step, p, q, N, d)
     H = zeros(ComplexF64, (d^N, d^N))
@@ -1001,21 +1096,66 @@ function total_MPO(N::Int64, sites::Vector{Index{Int64}}, transition_freq::Abstr
     return H 
 end
 
-function drift_MPO(N::Int64, sites::Vector{Index{Int64}}, transition_freq::AbstractArray, rot_freq::AbstractArray, self_kerr::AbstractArray, zz::AbstractArray, dipole::AbstractArray)
+function drift_MPO(N::Int64, sites::Vector{Index{Int64}}, transition_freq::AbstractArray, rot_freq::Union{AbstractArray, Nothing}; self_kerr::Union{AbstractArray, Nothing} = nothing, zz::Union{AbstractArray, Nothing} = nothing, dipole::Union{AbstractArray, Nothing} = nothing)
     os = OpSum()
     for i = 1:N
         freq = transition_freq[i] - rot_freq[i] 
         os += freq, "adag", i, "a", i
-        os -= self_kerr[i], "adag", i, "adag", i, "a", i, "aa", i
+        if !isnothing(self_kerr)
+            os -= self_kerr[i], "adag", i, "adag", i, "a", i, "a", i
+        end
         for j = i + 1:N 
-            os += zz[i,j], "adag", i, "a", i, "adag", j, "a", j 
-            os += dipole[i,j], "adag", i, "a", j 
-            os += dipole[i,j], "a", i, "adag", j 
+            if !isnothing(zz)
+                os += zz[i,j], "adag", i, "a", i, "adag", j, "a", j 
+            end
+            if !isnothing(dipole) && dipole[i,j] != 0
+                os += dipole[i,j], "adag", i, "a", j 
+                os += dipole[i,j], "a", i, "adag", j 
+            end
         end
     end
     H = MPO(ComplexF64, os, sites)
     return H 
 end
+
+"""
+
+t_vals: vector containing times at which coupling is turned on and off [[100, 200], [300,400]] first coupling is turned on at 100 and off at 200 second coupling is turned on at 300 and turned off at 400
+coupling_inds: vector containing indices of qubits that coupling is between, [[1,2]], [3,4]]. First coupling is between qubits 1 and 2, and second coupling is between qubits 3 and 4. 
+
+Note: t_vals and coupling indices must match in order
+"""
+
+
+#create time-stepped value for dipole-dipole, here it is known explicitly that values change every 200 ns
+function dipole_value(t_vals::Union{Tuple{<:Real, <:Real}, Nothing}, strength::Real, t::Real)
+    if t_vals[1] <= t && t < t_vals[2] 
+        return 1
+    else
+        return strength
+    end
+end
+
+"""
+Jkl: matrix of dipole-dipole coupling values, created beforehand. 
+"""
+function create_dipole_matrix(Jkl::Matrix{<:Real}, t_vals::Union{Vector{<:Tuple{<:Real, <:Real}}, Nothing}, pairs::Vector{Tuple{Int, Int}}, strength::Real, t::Real)
+    Jkl_new = deepcopy(Jkl)
+    for (pair,t_range) in zip(pairs, t_vals) 
+        Jkl_new[pair...] *= dipole_value(t_range, strength, t)
+    end
+    return Jkl_new 
+end
+
+function create_dipole_matrix(Jkl::Matrix{<:Real}, bond_dict::Dict{Any, Any}, t::Real)
+    Jkl_new = deepcopy(Jkl)
+    for pair in keys(bond_dict)
+        t_range = bond_dict[pair].t_range 
+        off_strength = bond_dict[pair].off_strength
+        Jkl_new[pair...] *= dipole_value(t_range, off_strength, t)
+    end
+    return Jkl_new 
+end 
 
 function control_MPO(N::Int64, sites::Vector{Index{Int64}}, bc_params::bcparams, t::Float64)
     os = OpSum()
@@ -1031,6 +1171,7 @@ function control_MPO(N::Int64, sites::Vector{Index{Int64}}, bc_params::bcparams,
     return H 
 end
 
+# udpates MPO where when control coefficients are given
 function update_MPO!(H::MPO, bc_params::bcparams, t::Float64)
     N = length(H)
     # H_copy = deepcopy(H)
@@ -1054,6 +1195,54 @@ function update_MPO!(H::MPO, bc_params::bcparams, t::Float64)
         end
     end  
 end
+
+# updates MPO when pulse data is given, works only for midpoint rule integration
+function update_MPO!(H::MPO, pulse_real::AbstractMatrix, pulse_imag::AbstractMatrix, time_index::Int)
+    N = length(H)
+    links = linkinds(H)
+    for i in 1:N 
+        core_inds = inds(H[i])
+        p = 0.5*(pulse_real[i,time_index - 1] + pulse_real[i, time_index])
+        q = 0.5*(pulse_imag[i,time_index - 1] + pulse_imag[i, time_index])
+        control_a = p + im*q 
+        control_adag = p - im*q 
+        if i == 1
+            H[i][core_inds[1]=> 1, core_inds[2] => 1, core_inds[3] => 2] = control_a 
+            H[i][core_inds[1]=> 1, core_inds[2] => 2, core_inds[3] => 1] = control_adag
+        elseif i == N
+            H[i][core_inds[1]=> dim(links[i-1]), core_inds[2] => 1, core_inds[3] => 2] = control_a 
+            H[i][core_inds[1]=> dim(links[i-1]), core_inds[2] => 2, core_inds[3] => 1] = control_adag
+        else
+            H[i][core_inds[1]=> dim(links[i-1]), core_inds[2] => 1, core_inds[3] => 1, core_inds[4] => 2] = control_a 
+            H[i][core_inds[1]=> dim(links[i-1]), core_inds[2] => 1, core_inds[3] => 2, core_inds[4] => 1] = control_adag
+        end
+    end
+end
+
+
+# updates MPO when pulse data is given, evalues H(t_{n + 1/4}) ≈ 0.5*(H(t_n) + H(t_{n + 1/2})) ≈ 0.5(H(t_n) + 0.5*(H(t_{n}) + H(t_{n + 1})) = 0.75 H(t_n) + 0.25 H(t_{n + 1}). Then H(t_{n + 3/4}) = 0.25 H(t_n) + 0.75 H(t_{n + 1})
+
+# function update_MPO!(::MPO, pulse_real::AbstractMatrix, pulse_imag::AbstractMatrix, time_index::Int)
+#     N = length(H)
+#     links = linkinds(H)
+#     for i in 1:N 
+#         core_inds = inds(H[i])
+#         p = 0.75*pulse_real[i,time_index - 1] + 0.25*pulse_real[i, time_index + 1]
+#         q = 0.75*pulse_imag[i,time_index - 1] + 0.25*pulse_imag[i, time_index + 1]
+#         control_a = p + im*q 
+#         control_adag = p - im*q 
+#         if i == 1
+#             H[i][core_inds[1]=> 1, core_inds[2] => 1, core_inds[3] => 2] = control_a 
+#             H[i][core_inds[1]=> 1, core_inds[2] => 2, core_inds[3] => 1] = control_adag
+#         elseif i == N
+#             H[i][core_inds[1]=> dim(links[i-1]), core_inds[2] => 1, core_inds[3] => 2] = control_a 
+#             H[i][core_inds[1]=> dim(links[i-1]), core_inds[2] => 2, core_inds[3] => 1] = control_adag
+#         else
+#             H[i][core_inds[1]=> dim(links[i-1]), core_inds[2] => 1, core_inds[3] => 1, core_inds[4] => 2] = control_a 
+#             H[i][core_inds[1]=> dim(links[i-1]), core_inds[2] => 1, core_inds[3] => 2, core_inds[4] => 1] = control_adag
+#         end
+#     end
+# end
 
 # function H_total_mat(N::Int64, N_levels::Vector{Int64}, transition_freq::AbstractArray, rot_freq::AbstractArray, self_kerr::AbstractArray, zz::AbstractArray, dipole::AbstractArray, bc_params::bcparams, t::Float64)
 #     H = zeros(ComplexF64, (prod(N_levels), prod(N_levels)))
@@ -1104,6 +1293,34 @@ function H_total_mat(N::Int64, N_levels::Vector{Int64}, transition_freq::Abstrac
     return H 
 end
 
+function H_total_mat(N::Int64, N_levels::Vector{Int64}, transition_freq::AbstractArray, rot_freq::AbstractArray, self_kerr::AbstractArray, zz::AbstractArray, dipole::AbstractArray, pulse_real::AbstractMatrix, pulse_imag::AbstractMatrix, step::Int)
+    H = zeros(ComplexF64, (prod(N_levels), prod(N_levels)))
+    for i = 1:N 
+        a = Array(Bidiagonal(zeros(N_levels[i]), sqrt.(collect(1: N_levels[i] - 1)), :U))
+        H .+= (transition_freq[i] - rot_freq[i])*s_op_general(a'*a, i, N, N_levels[i])
+        H .-= 0.5*self_kerr[i]*s_op_general(a'*a'*a*a, i, N, N_levels[i])
+        # average values in pulse 
+        # p = 0.5*(pulse_real[i,step - 1] * pulse_real[i, step + 1])
+        # q = 0.5*(pulse_imag[i,step - 1] * pulse_imag[i, step + 1])
+        p = pulse_real[i, step]
+        q = pulse_imag[i,step]
+        # control_a = p + im*q 
+        # control_adag = p - im*q
+        # H .+= control_a*s_op_general(a, i, N, N_levels[i]) + control_adag*s_op_general(a, i, N, N_levels[i])
+        H .+= p*s_op_general(a + a', i, N, N_levels[i]) + im*q*s_op_general(a - a', i, N, N_levels[i])
+        if i != N 
+            for j = i + 1: N
+                #zz-coupling interaction
+                H .-= zz[i,j]*s_op_general(a'*a, i, N, N_levels[i])*s_op_general(a'*a, j, N, N_levels[j])
+                #dipole-dipole interaction
+                H .+= dipole[i,j]*s_op_general(a', i, N, N_levels[i])*s_op_general(a, j, N, N_levels[j])
+                H .+= dipole[i,j]*s_op_general(a, i, N, N_levels[i])*s_op_general(a', j, N, N_levels[j])
+            end
+        end
+    end
+    return H 
+end
+
 function H_drift_mat(N::Int64, N_levels::Vector{Int64}, transition_freq::AbstractArray, rot_freq::AbstractArray, self_kerr::AbstractArray, zz::AbstractArray, dipole::AbstractArray)
     H = zeros(ComplexF64, (prod(N_levels), prod(N_levels)))
     for i = 1:N 
@@ -1133,6 +1350,42 @@ function updateH_mat!(H::AbstractArray, N_levels::Vector{Int64}, N::Int64, bc_pa
         control_adag = p - im*q
         H .+= p*s_op_general(a + a', i, N, N_levels[i]) + im*q*s_op_general(a - a', i, N, N_levels[i])
     end
+end
+
+### Hamiltonian used in "Numerical simulations of long-range open quantum many-body dynamics with tree tensor networks (equation 7) in MPO form 
+
+# Ω is the Rabi frequency of a driving laser, Δ is the detuning frequency of a driving laser
+
+function long_range_dissipative_ising(N::Int64, sites::Vector{Index{Int64}}, α::Real, Ω::Real, Δ::Real, V::Real)
+    os = OpSum()
+    c = sum(collect(1:N).^α)
+    for i in 1:N 
+        os += Ω, "Sx2", i 
+        os += Δ, "a+a", i 
+        for j in 1:N 
+            if j != i
+                coeff = (V/(2*c*abs(j - i)^α))
+                os += coeff, "a+a", i, "a+a", j 
+            end
+        end
+    end
+    H = MPO(os, sites)
+end 
+
+function long_range_dissipative_ising(N::Int64, α::Real, Ω::Real, Δ::Real, V::Real)
+    H = zeros(ComplexF64, 2^N, 2^N)
+    c = sum(collect(1:N).^α)
+    for i in 1:N 
+        H += Ω*s_op([0 1; 1 0], i, N)
+        H += Δ*s_op([0 0; 0 1], i, N)
+        for j in 1:N 
+            if i != j 
+                coeff = (V/(2*c*abs(j - i)^α))
+                H += coeff*s_op([0 0; 0 1], i, N)*s_op([0 0; 0 1], j, N)
+            end
+        end
+    end
+    return H 
 end
 
 
